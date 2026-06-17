@@ -40,23 +40,18 @@ export default function CommandHistory({ sessionId, historyServerId, addToast })
       if (!cmd || !String(cmd).trim()) return;
 
       const entry = { id: Date.now() + Math.random(), command: cmd, time: d.time, source: 'input' };
-      if (perServerRef.current.length > 0 && perServerRef.current[0].command === cmd) {
-        perServerRef.current[0].time = d.time;
-      } else {
-        perServerRef.current = [entry, ...perServerRef.current].slice(0, 100);
-      }
+      // 去重：如果历史已有相同命令，移除旧的，放到最新位置
+      perServerRef.current = [entry, ...perServerRef.current.filter(e => e.command !== cmd)].slice(0, 100);
       persist();
 
       // 追加到全局历史（连续相同命令只更新时间）
       AppGo.GetGlobalCommandHistory().then(raw => {
         const list = JSON.parse(raw);
         if (!Array.isArray(list)) return;
-        if (list.length > 0 && list[0].command === cmd) {
-          list[0].time = d.time;
-        } else {
-          list.unshift({ id: Date.now() + Math.random(), command: cmd, time: d.time, source: 'input' });
-        }
-        AppGo.SaveGlobalCommandHistory(JSON.stringify(list.slice(0, 100))).catch(() => {});
+        // 全局历史去重：移除相同命令的旧条目
+        const filtered = list.filter(e => e.command !== cmd);
+        filtered.unshift({ id: Date.now() + Math.random(), command: cmd, time: d.time, source: 'input' });
+        AppGo.SaveGlobalCommandHistory(JSON.stringify(filtered.slice(0, 100))).catch(() => {});
       }).catch(() => {});
 
       if (historyMode === 'server') {

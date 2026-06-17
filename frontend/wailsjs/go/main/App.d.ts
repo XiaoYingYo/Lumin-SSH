@@ -22,6 +22,8 @@ export function DeleteItem(arg1:string,arg2:string,arg3:boolean):Promise<void>;
 
 export function DisconnectSSH(arg1:string):Promise<void>;
 
+export function DoQuit():Promise<void>;
+
 export function DownloadFile(arg1:string,arg2:string):Promise<void>;
 
 export function GetCommandHistory(arg1:string):Promise<string>;
@@ -95,6 +97,8 @@ export function SaveGlobalCommandHistory(arg1:string):Promise<void>;
 export function SaveParamHistory(arg1:string):Promise<void>;
 
 export function SaveQuickCommands(arg1:string):Promise<void>;
+
+export function SaveQuickCommandsLocal(arg1:string):Promise<void>;
 
 export function SaveR2Config(arg1:Record<string, string>):Promise<void>;
 

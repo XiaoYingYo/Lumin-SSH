@@ -467,13 +467,18 @@ func (c *ConfigManager) GetQuickCommands() string {
 	return string(data)
 }
 
-// SaveQuickCommands 保存快捷命令列表（JSON 字符串）
+// SaveQuickCommands 保存快捷命令列表（JSON 字符串），触发云端同步
 func (c *ConfigManager) SaveQuickCommands(jsonStr string) error {
 	err := os.WriteFile(c.quickCmdFile, []byte(jsonStr), 0600)
 	if err == nil {
 		go c.AutoSyncToWebdav()
 	}
 	return err
+}
+
+// SaveQuickCommandsLocal 保存快捷命令列表到本地，不触发云端同步
+func (c *ConfigManager) SaveQuickCommandsLocal(jsonStr string) error {
+	return os.WriteFile(c.quickCmdFile, []byte(jsonStr), 0600)
 }
 
 // GetParamHistory 读取参数历史

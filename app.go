@@ -488,6 +488,11 @@ func (a *App) SaveQuickCommands(jsonStr string) error {
 	return a.configManager.SaveQuickCommands(jsonStr)
 }
 
+// SaveQuickCommandsLocal 保存快捷命令列表到本地，不触发云端同步
+func (a *App) SaveQuickCommandsLocal(jsonStr string) error {
+	return a.configManager.SaveQuickCommandsLocal(jsonStr)
+}
+
 // GetParamHistory 获取参数历史
 func (a *App) GetParamHistory() string {
 	return a.configManager.GetParamHistory()

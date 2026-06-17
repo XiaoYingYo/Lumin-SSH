@@ -19,6 +19,13 @@ async function saveCommands(list) {
   } catch (_) {}
 }
 
+// ── 本地保存（不同步到云端）───────────────────────────
+async function saveCommandsLocal(list) {
+  try {
+    await AppGo.SaveQuickCommandsLocal(JSON.stringify(list));
+  } catch (_) {}
+}
+
 // ── 从命令字符串提取参数（含参数名） ──────────────────
 // 返回 [{num:1, label:'IP地址'}, ...]
 function extractParams(cmd) {
@@ -484,7 +491,8 @@ const QuickCommands = forwardRef(function QuickCommands({ sessionId, addToast, c
         const list = JSON.parse(JSON.stringify(commands));
         const r = resolvePath(list, path);
         r.item.expanded = !r.item.expanded;
-        save(list);
+        setCommands(list);
+        saveCommandsLocal(list);
         // 保留选中状态以便右侧显示分组详情
         setParamValues({});
         return;
@@ -526,7 +534,8 @@ const QuickCommands = forwardRef(function QuickCommands({ sessionId, addToast, c
         const list = JSON.parse(JSON.stringify(data));
         const r = resolvePath(list, path);
         if (r.item) r.item.expanded = !r.item.expanded;
-        save(list);
+        setCommands(list);
+        saveCommandsLocal(list);
         // 保留选中状态以便右侧显示分组详情
         setParamValues({});
         return;

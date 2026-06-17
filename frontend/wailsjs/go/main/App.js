@@ -42,6 +42,10 @@ export function DisconnectSSH(arg1) {
   return window['go']['main']['App']['DisconnectSSH'](arg1);
 }
 
+export function DoQuit() {
+  return window['go']['main']['App']['DoQuit']();
+}
+
 export function DownloadFile(arg1, arg2) {
   return window['go']['main']['App']['DownloadFile'](arg1, arg2);
 }
@@ -188,6 +192,10 @@ export function SaveParamHistory(arg1) {
 
 export function SaveQuickCommands(arg1) {
   return window['go']['main']['App']['SaveQuickCommands'](arg1);
+}
+
+export function SaveQuickCommandsLocal(arg1) {
+  return window['go']['main']['App']['SaveQuickCommandsLocal'](arg1);
 }
 
 export function SaveR2Config(arg1) {
