@@ -49,7 +49,7 @@ function isEditable(name) {
     'txt', 'md', 'log', 'json', 'yaml', 'yml', 'toml', 'ini', 'env', 'conf', 'config',
     'js', 'jsx', 'ts', 'tsx', 'py', 'rb', 'go', 'rs', 'java', 'c', 'cpp', 'h', 'cs',
     'php', 'html', 'css', 'scss', 'less', 'xml', 'sql', 'sh', 'bash', 'zsh', 'vue', 'svelte',
-    'list', 'sources', 'nginx', 'gitignore', 'dockerfile', 'makefile',
+    'list', 'sources', 'repo', 'nginx', 'gitignore', 'dockerfile', 'makefile',
   ];
   if (editable.includes(ext)) return true;
   // No extension (like Dockerfile, Makefile)

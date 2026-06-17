@@ -13,6 +13,47 @@ import { StreamLanguage } from '@codemirror/language';
 import { shell } from '@codemirror/legacy-modes/mode/shell';
 import { Maximize2, PictureInPicture, Columns2, X, PanelLeft, PanelRight, PanelBottom } from 'lucide-react';
 
+// Debian sources.list 语法高亮
+const debianList = StreamLanguage.define({
+  startState: () => ({ inUrl: false }),
+  token: (stream, state) => {
+    if (stream.eatSpace()) return null;
+    // 注释
+    if (stream.match('#')) {
+      stream.skipToEnd();
+      return 'comment';
+    }
+    // 行首关键字
+    if (stream.match(/deb-src\b/)) return 'keyword';
+    if (stream.match(/deb\b/)) return 'keyword';
+    // URL
+    if (stream.match(/https?:\/\/[^\s]+/)) return 'string';
+    // 行末架构标记
+    if (stream.match(/[a-z-]+=/)) return 'attribute';
+    return stream.next();
+  }
+});
+
+// RHEL .repo 文件语法高亮 (INI 风格)
+const rhelRepo = StreamLanguage.define({
+  startState: () => ({}),
+  token: (stream) => {
+    if (stream.eatSpace()) return null;
+    // 注释
+    if (stream.match('#') || stream.match(';')) {
+      stream.skipToEnd();
+      return 'comment';
+    }
+    // [section]
+    if (stream.match(/^\[.*\]/)) return 'keyword';
+    // key=value
+    if (stream.match(/^[a-zA-Z_][a-zA-Z0-9_]*\s*=/)) return 'attribute';
+    // $变量
+    if (stream.match(/\$[a-zA-Z_][a-zA-Z0-9_]*/)) return 'string';
+    return stream.next();
+  }
+});
+
 // 根据文件扩展名返回对应的 CodeMirror 语言
 function getLanguage(filename) {
   const ext = (filename.split('.').pop() || '').toLowerCase();
@@ -26,6 +67,7 @@ function getLanguage(filename) {
     xml: xml(), svg: xml(),
     sql: sql(),
     sh: StreamLanguage.define(shell), bash: StreamLanguage.define(shell), zsh: StreamLanguage.define(shell),
+    list: debianList, sources: debianList, repo: rhelRepo,
   };
   return map[ext] || null;
 }
