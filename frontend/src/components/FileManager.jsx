@@ -49,7 +49,7 @@ function isEditable(name) {
     'txt', 'md', 'log', 'json', 'yaml', 'yml', 'toml', 'ini', 'env', 'conf', 'config',
     'js', 'jsx', 'ts', 'tsx', 'py', 'rb', 'go', 'rs', 'java', 'c', 'cpp', 'h', 'cs',
     'php', 'html', 'css', 'scss', 'less', 'xml', 'sql', 'sh', 'bash', 'zsh', 'vue', 'svelte',
-    'nginx', 'gitignore', 'dockerfile', 'makefile',
+    'list', 'sources', 'nginx', 'gitignore', 'dockerfile', 'makefile',
   ];
   if (editable.includes(ext)) return true;
   // No extension (like Dockerfile, Makefile)
@@ -125,7 +125,7 @@ function ContextMenu({ pos, item, onClose, onDownload, onEdit, onRename, onDelet
   );
 }
 
-export default function FileManager({ sessionId, addToast }) {
+export default function FileManager({ sessionId, addToast, isActive = true }) {
   const { t } = useTranslation();
   const [currentPath, setCurrentPath] = useState('/');
   const [items, setItems] = useState([]);
@@ -906,6 +906,7 @@ export default function FileManager({ sessionId, addToast }) {
           onModeChange={handleEditorModeChange}
           splitPosition={editorSplitPosition}
           onSplitPositionChange={handleEditorSplitPositionChange}
+          isActive={isActive}
         />
       )}
     </div>

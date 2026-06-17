@@ -252,8 +252,16 @@ func (m *SSHManager) Connect(sessionId string, conn Connection) error {
 		var sftpErr error
 		sftpClient, sftpErr = sftp.NewClient(client)
 		if sftpErr != nil {
-			client.Close()
-			return fmt.Errorf("failed to start SFTP: %v", sftpErr)
+			// SFTP 不可用（如部分嵌入式系统不支持 sftp subsystem），文件管理功能不可用但不影响终端
+			runtime.EventsEmit(m.ctx, "ssh-status", map[string]interface{}{
+				"sessionId": sessionId,
+				"status":    "sftp-unavailable",
+				"host":      conn.Host,
+				"port":      conn.Port,
+				"username":  conn.Username,
+				"error":     sftpErr.Error(),
+			})
+			sftpClient = nil
 		}
 
 		m.mu.Lock()
@@ -851,6 +859,9 @@ echo ---DONE---
 
 // deployProbeScript writes probe.sh to ~/.lumin/ on the remote server via SFTP.
 func (m *SSHManager) deployProbeScript(sftpClient *sftp.Client, connKey string) error {
+	if sftpClient == nil {
+		return fmt.Errorf("SFTP not available")
+	}
 	m.mu.Lock()
 	already := m.probeDeployed[connKey]
 	m.mu.Unlock()
@@ -1333,6 +1344,9 @@ func (m *SSHManager) ListDir(sessionId string, path string) ([]map[string]interf
 	if err != nil {
 		return nil, err
 	}
+	if sftpClient == nil {
+		return nil, fmt.Errorf("SFTP not available")
+	}
 
 	files, err := sftpClient.ReadDir(path)
 	if err != nil {
@@ -1365,6 +1379,9 @@ func (m *SSHManager) ReadFile(sessionId string, path string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	if sftpClient == nil {
+		return "", fmt.Errorf("SFTP not available")
+	}
 
 	f, err := sftpClient.Open(path)
 	if err != nil {
@@ -1383,6 +1400,9 @@ func (m *SSHManager) WriteFile(sessionId string, path string, content string) er
 	_, sftpClient, err := m.getClientEntry(sessionId)
 	if err != nil {
 		return err
+	}
+	if sftpClient == nil {
+		return fmt.Errorf("SFTP not available")
 	}
 
 	f, err := sftpClient.Create(path)
@@ -1404,6 +1424,9 @@ func (m *SSHManager) DeleteItem(sessionId string, path string, isDir bool) error
 		_, err := m.executeCmdWithClient(client, fmt.Sprintf("rm -rf '%s'", strings.ReplaceAll(path, "'", "'\\''")))
 		return err
 	}
+	if sftpClient == nil {
+		return fmt.Errorf("SFTP not available")
+	}
 	return sftpClient.Remove(path)
 }
 
@@ -1412,6 +1435,9 @@ func (m *SSHManager) Mkdir(sessionId string, path string) error {
 	if err != nil {
 		return err
 	}
+	if sftpClient == nil {
+		return fmt.Errorf("SFTP not available")
+	}
 	return sftpClient.MkdirAll(path)
 }
 
@@ -1419,6 +1445,9 @@ func (m *SSHManager) RenameItem(sessionId string, oldPath string, newPath string
 	_, sftpClient, err := m.getClientEntry(sessionId)
 	if err != nil {
 		return err
+	}
+	if sftpClient == nil {
+		return fmt.Errorf("SFTP not available")
 	}
 	return sftpClient.Rename(oldPath, newPath)
 }
@@ -1460,6 +1489,9 @@ func (m *SSHManager) UploadFile(sessionId string, localPath string, remotePath s
 	if err != nil {
 		return err
 	}
+	if sftpClient == nil {
+		return fmt.Errorf("SFTP not available")
+	}
 
 	src, err := os.Open(localPath)
 	if err != nil {
@@ -1497,6 +1529,9 @@ func (m *SSHManager) UploadDir(sessionId string, localDir string, remoteDir stri
 	_, sftpClient, err := m.getClientEntry(sessionId)
 	if err != nil {
 		return err
+	}
+	if sftpClient == nil {
+		return fmt.Errorf("SFTP not available")
 	}
 
 	remoteDir = filepath.ToSlash(remoteDir)
@@ -1554,6 +1589,9 @@ func (m *SSHManager) UploadFileContent(sessionId string, fileName string, remote
 	if err != nil {
 		return err
 	}
+	if sftpClient == nil {
+		return fmt.Errorf("SFTP not available")
+	}
 
 	destPath := filepath.ToSlash(filepath.Join(remoteDir, fileName))
 	dst, err := sftpClient.Create(destPath)
@@ -1570,6 +1608,9 @@ func (m *SSHManager) DownloadFile(sessionId string, remotePath string, localPath
 	_, sftpClient, err := m.getClientEntry(sessionId)
 	if err != nil {
 		return err
+	}
+	if sftpClient == nil {
+		return fmt.Errorf("SFTP not available")
 	}
 
 	src, err := sftpClient.Open(remotePath)

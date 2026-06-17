@@ -696,6 +696,7 @@ export default function Terminal({ sessionId, serverId, historyServerId, status,
     if (!isConnected) return;
     const text = (cmd ?? '').trim();
     AppGo.WriteTerminal(sessionId, text + '\r');
+    termRef.current?.scrollToBottom();
     if (text) {
       window.dispatchEvent(new CustomEvent('ssh-command-history', {
         detail: { sessionId: serverId, command: text, time: new Date().toISOString(), source: 'input' }

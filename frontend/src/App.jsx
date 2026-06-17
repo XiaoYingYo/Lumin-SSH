@@ -1437,7 +1437,7 @@ export default function App() {
                         }}>
                           {(s.terminals?.length > 0 ? s.terminals : [{ id: s.id }]).map(t => (
                             <div key={t.id} style={activeSessionId === s.id && activeTerminalId === t.id ? { display: 'contents' } : { display: 'none' }}>
-                              <FileManager sessionId={t.id} addToast={addToast} />
+                              <FileManager sessionId={t.id} addToast={addToast} isActive={activeSessionId === s.id && activeTerminalId === t.id} />
                             </div>
                           ))}
                         </div>
@@ -1483,7 +1483,7 @@ export default function App() {
                         <div style={{ display: contentTab === 'files' ? 'flex' : 'none', height: '100%', flex: 1, flexDirection: 'column' }}>
                           {(s.terminals?.length > 0 ? s.terminals : [{ id: s.id }]).map(t => (
                             <div key={t.id} style={activeSessionId === s.id && activeTerminalId === t.id ? { display: 'contents' } : { display: 'none' }}>
-                              <FileManager sessionId={t.id} addToast={addToast} />
+                              <FileManager sessionId={t.id} addToast={addToast} isActive={activeSessionId === s.id && activeTerminalId === t.id} />
                             </div>
                           ))}
                         </div>
@@ -1526,7 +1526,7 @@ export default function App() {
                         }}>
                           {(s.terminals?.length > 0 ? s.terminals : [{ id: s.id }]).map(t => (
                             <div key={t.id} style={activeSessionId === s.id && activeTerminalId === t.id ? { display: 'contents' } : { display: 'none' }}>
-                              <FileManager sessionId={t.id} addToast={addToast} />
+                              <FileManager sessionId={t.id} addToast={addToast} isActive={activeSessionId === s.id && activeTerminalId === t.id} />
                             </div>
                           ))}
                         </div>

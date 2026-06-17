@@ -57,6 +57,7 @@ export default function FileEditor({
   onModeChange,
   splitPosition = 'right',
   onSplitPositionChange,
+  isActive = true,
 }) {
   // 每个文件的编辑内容缓存：{ [path]: content }
   const [editedContents, setEditedContents] = useState({});
@@ -209,33 +210,8 @@ export default function FileEditor({
     const container = document.getElementById('session-editor-container');
     if (!host || !container) return;
 
-    if (mode === 'split') {
-      container.style.flexDirection = splitPosition === 'bottom' ? 'column' : 'row';
-
-      if (splitPosition === 'bottom') {
-        host.style.width = '100%';
-        host.style.height = '50%';
-        host.style.minWidth = '0px';
-        host.style.maxWidth = 'none';
-        host.style.minHeight = '200px';
-        host.style.maxHeight = '70%';
-        host.style.borderTop = '1px solid var(--border)';
-        host.style.borderLeft = 'none';
-        host.style.borderRight = 'none';
-        host.style.order = '2';
-      } else {
-        host.style.width = '50%';
-        host.style.height = '100%';
-        host.style.minWidth = '320px';
-        host.style.maxWidth = '70%';
-        host.style.minHeight = '0px';
-        host.style.maxHeight = 'none';
-        host.style.borderTop = 'none';
-        host.style.borderLeft = splitPosition === 'right' ? '1px solid var(--border)' : 'none';
-        host.style.borderRight = splitPosition === 'left' ? '1px solid var(--border)' : 'none';
-        host.style.order = splitPosition === 'left' ? '0' : '2';
-      }
-    } else {
+    if (!isActive || mode !== 'split') {
+      // 非活跃或非分栏模式：隐藏 split host
       container.style.flexDirection = 'row';
       host.style.width = '0px';
       host.style.height = '100%';
@@ -247,8 +223,51 @@ export default function FileEditor({
       host.style.borderRight = 'none';
       host.style.borderTop = 'none';
       host.style.order = '2';
+      return;
     }
-  }, [mode, splitPosition]);
+
+    if (splitPosition === 'bottom') {
+      container.style.flexDirection = 'column';
+      host.style.width = '100%';
+      host.style.height = '50%';
+      host.style.minWidth = '0px';
+      host.style.maxWidth = 'none';
+      host.style.minHeight = '200px';
+      host.style.maxHeight = '70%';
+      host.style.borderTop = '1px solid var(--border)';
+      host.style.borderLeft = 'none';
+      host.style.borderRight = 'none';
+      host.style.order = '2';
+    } else {
+      container.style.flexDirection = 'row';
+      host.style.width = '50%';
+      host.style.height = '100%';
+      host.style.minWidth = '320px';
+      host.style.maxWidth = '70%';
+      host.style.minHeight = '0px';
+      host.style.maxHeight = 'none';
+      host.style.borderTop = 'none';
+      host.style.borderLeft = splitPosition === 'right' ? '1px solid var(--border)' : 'none';
+      host.style.borderRight = splitPosition === 'left' ? '1px solid var(--border)' : 'none';
+      host.style.order = splitPosition === 'left' ? '0' : '2';
+    }
+
+    return () => {
+      // 组件卸载时重置 split host 和 container 样式
+      if (!host || !container) return;
+      container.style.flexDirection = 'row';
+      host.style.width = '0px';
+      host.style.height = '100%';
+      host.style.minWidth = '0px';
+      host.style.maxWidth = '0px';
+      host.style.minHeight = '0px';
+      host.style.maxHeight = '0px';
+      host.style.borderLeft = 'none';
+      host.style.borderRight = 'none';
+      host.style.borderTop = 'none';
+      host.style.order = '2';
+    };
+  }, [mode, splitPosition, isActive]);
 
   // 标签页栏
   const tabsBar = (
@@ -468,6 +487,7 @@ export default function FileEditor({
   );
 
   if (mode === 'popup') {
+    if (!isActive) return null;
     return createPortal(
       <div
         style={{
@@ -511,6 +531,7 @@ export default function FileEditor({
   }
 
   if (mode === 'split') {
+    if (!isActive) return null;
     const host = document.getElementById('editor-split-host');
     if (!host) return null;
     return createPortal(
