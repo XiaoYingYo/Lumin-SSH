@@ -15,8 +15,11 @@ export default function CommandHistory({ sessionId, historyServerId, addToast })
   const updateGlobalHistory = useCallback((updater) => {
     globalHistoryUpdateLock.current = globalHistoryUpdateLock.current.then(async () => {
       try {
-        const current = await AppGo.GetGlobalCommandHistory();
-        const next = updater(current || []);
+        const raw = await AppGo.GetGlobalCommandHistory();
+        let current = [];
+        try { current = JSON.parse(raw) || []; } catch {}
+        if (!Array.isArray(current)) current = [];
+        const next = updater(current);
         await AppGo.SaveGlobalCommandHistory(JSON.stringify(next));
       } catch (e) {
         console.error('Failed to update global history:', e);
