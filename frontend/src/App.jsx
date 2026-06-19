@@ -772,9 +772,11 @@ export default function App() {
   }, [addToast]);
 
   // ── Close session ──────────────────────────────────────────
-  const closeSession = useCallback((sessionId, e) => {
+  const closeSession = useCallback(async (sessionId, e) => {
     e?.stopPropagation();
     const session = sessionsRef.current.find(s => s.id === sessionId);
+    const name = session?.name || session?.host || sessionId;
+    if (!(await window.luminDialog?.confirm(`${t('确定关闭连接')}「${name}」？`))) return;
     // 后端断开（不等待，即使服务器无响应也不阻塞 UI）
     if (session?.terminals) {
       for (const t of session.terminals) {
