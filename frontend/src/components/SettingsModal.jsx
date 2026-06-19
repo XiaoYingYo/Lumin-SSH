@@ -40,8 +40,6 @@ const I18N = {
       langTitle: '语言',
       langLabel: '语言',
       langDesc: '选择界面语言',
-      fontLabel: '界面字体',
-      fontDesc: '选择软件界面使用的字体',
       termFontLabel: '终端字体大小',
       termFontDesc: '调节终端的字符显示大小',
       termEchoLabel: '终端输入回显',
@@ -96,8 +94,6 @@ const I18N = {
       langTitle: 'Language',
       langLabel: 'Language',
       langDesc: 'Choose interface language',
-      fontLabel: 'Interface Font',
-      fontDesc: 'Choose the font used in the interface',
       termFontLabel: 'Terminal Font Size',
       termFontDesc: 'Adjust terminal font size',
       termEchoLabel: 'Terminal Input Echo',
@@ -486,7 +482,6 @@ export default function SettingsModal({ onClose, addToast, onRestored }) {
   const [themeAccent, setThemeAccent] = useState(localStorage.getItem('themeAccent') || '#10b981');
   const [useCustomAccent, setUseCustomAccent] = useState(localStorage.getItem('useCustomAccent') === 'true');
   const [language, setLanguage] = useState(localStorage.getItem('appLanguage') || 'zh-CN');
-  const [appFont, setAppFont] = useState(localStorage.getItem('appFont') || 'system-ui');
   const [terminalFontSize, setTerminalFontSize] = useState(parseInt(localStorage.getItem('terminalFontSize') || '13', 10));
   const [termBgImage, setTermBgImage] = useState(localStorage.getItem('termBgImage') || '');
   const [termBgOpacity, setTermBgOpacity] = useState(parseFloat(localStorage.getItem('termBgOpacity') || '0.15'));
@@ -561,7 +556,9 @@ export default function SettingsModal({ onClose, addToast, onRestored }) {
   const handleThemeChange = (mode) => {
     setThemeMode(mode);
     localStorage.setItem('themeMode', mode);
-    if (mode === 'light') document.body.classList.add('theme-light');
+    const isSystemLight = window.matchMedia('(prefers-color-scheme: light)').matches;
+    const applyLight = mode === 'light' || (mode === 'system' && isSystemLight);
+    if (applyLight) document.body.classList.add('theme-light');
     else document.body.classList.remove('theme-light');
   };
 
@@ -590,20 +587,6 @@ export default function SettingsModal({ onClose, addToast, onRestored }) {
     setLanguage(lang);
     setGlobalLanguage(lang);
     addToast($t('语言已切换至 简体中文'), 'success');
-  };
-
-  const handleFontChange = (e) => {
-    const font = e.target.value;
-    setAppFont(font);
-    localStorage.setItem('appFont', font);
-    
-    let fontVal = 'var(--font-ui)';
-    if (font === 'Open Sans') fontVal = "'Open Sans', sans-serif";
-    else if (font === 'Inter') fontVal = "'Inter', sans-serif";
-    else if (font === 'JetBrains Mono') fontVal = "'JetBrains Mono', monospace";
-    document.body.style.fontFamily = fontVal;
-    
-    addToast($t('界面字体已应用'), 'success');
   };
 
   const handleTerminalFontChange = (e) => {
@@ -1173,19 +1156,6 @@ export default function SettingsModal({ onClose, addToast, onRestored }) {
                       <select className="select" style={{ width: 200 }} value={language} onChange={handleLanguageChange}>
                         <option value="zh-CN">简体中文</option>
                         <option value="en-US">English</option>
-                      </select>
-                    </div>
-                    <div className="divider" style={{ margin: '12px 0', borderTop: '1px solid var(--border)' }} />
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <div>
-                        <div style={{ color: 'var(--text-1)', fontSize: 13 }}>{t.appearance.fontLabel}</div>
-                        <div style={{ color: 'var(--text-4)', fontSize: 11 }}>{t.appearance.fontDesc}</div>
-                      </div>
-                      <select className="select" style={{ width: 200 }} value={appFont} onChange={handleFontChange}>
-                        <option value="system-ui">{$t('系统默认')}</option>
-                        <option value="Open Sans">Open Sans</option>
-                        <option value="Inter">Inter</option>
-                        <option value="JetBrains Mono">JetBrains Mono</option>
                       </select>
                     </div>
                     <div className="divider" style={{ margin: '12px 0', borderTop: '1px solid var(--border)' }} />

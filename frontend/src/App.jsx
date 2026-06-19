@@ -189,11 +189,18 @@ export default function App() {
   // ── 初始化全局主题 ──────────────────────────────────────
   useEffect(() => {
     const savedTheme = localStorage.getItem('themeMode') || 'dark';
-    if (savedTheme === 'light') {
-      document.body.classList.add('theme-light');
-    } else {
-      document.body.classList.remove('theme-light');
-    }
+    const applyTheme = () => {
+      const isSystemLight = window.matchMedia('(prefers-color-scheme: light)').matches;
+      const applyLight = savedTheme === 'light' || (savedTheme === 'system' && isSystemLight);
+      if (applyLight) document.body.classList.add('theme-light');
+      else document.body.classList.remove('theme-light');
+    };
+    applyTheme();
+
+    // 系统主题变化时自动跟随
+    const mq = window.matchMedia('(prefers-color-scheme: light)');
+    mq.addEventListener('change', applyTheme);
+    return () => mq.removeEventListener('change', applyTheme);
 
     const useCustomAccent = localStorage.getItem('useCustomAccent') === 'true';
     const themeAccent = localStorage.getItem('themeAccent');

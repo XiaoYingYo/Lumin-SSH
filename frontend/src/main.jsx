@@ -47,7 +47,9 @@ class ErrorBoundary extends React.Component {
 const savedTheme = localStorage.getItem('themeMode') || 'dark';
 const savedAccent = localStorage.getItem('themeAccent') || '#10b981';
 
-if (savedTheme === 'light') {
+const isSystemLight = window.matchMedia('(prefers-color-scheme: light)').matches;
+const applyLight = savedTheme === 'light' || (savedTheme === 'system' && isSystemLight);
+if (applyLight) {
   document.body.classList.add('theme-light');
 } else {
   document.body.classList.remove('theme-light');
