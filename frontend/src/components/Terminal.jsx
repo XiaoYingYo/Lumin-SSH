@@ -126,6 +126,7 @@ export default function Terminal({ sessionId, serverId, historyServerId, status,
   // 热路径缓存：避免在按键/消息回调中频繁读取 localStorage
   const shortcutsRef = useRef(null);
   const localEchoRef = useRef(localStorage.getItem('terminalLocalEcho') !== 'false');
+  const smartWriteRef = useRef(null);
 
   // ── 初始化 xterm + WebSocket 终端通道 ────────────────────────────────
   // xterm.js 通过 AttachAddon + WebSocket 直接连到本地 Go WebSocket 服务器
@@ -159,6 +160,34 @@ export default function Terminal({ sessionId, serverId, historyServerId, status,
     const fitAddon = new FitAddon();
     term.loadAddon(fitAddon);
     term.open(containerRef.current);
+
+    // ── 智能写入：用户手动滚动上时保持位置 ────────────────────────
+    let userPinned = false; // 用户手动往上滚后锁定
+    term.onScroll(() => {
+      const buf = term.buffer.active;
+      // 滚到底部时解除锁定
+      if (buf.viewportY >= buf.baseY) {
+        userPinned = false;
+      }
+    });
+    containerRef.current?.addEventListener('wheel', (e) => {
+      if (e.deltaY < 0) {
+        requestAnimationFrame(() => {
+          const buf = term.buffer.active;
+          if (buf.viewportY < buf.baseY) userPinned = true;
+        });
+      }
+    }, { passive: true });
+
+    const smartWrite = (data) => {
+      if (userPinned) {
+        const savedY = term.buffer.active.viewportY;
+        term.write(data, () => { term.scrollToLine(savedY); });
+      } else {
+        term.write(data);
+      }
+    };
+    smartWriteRef.current = smartWrite;
 
     // ── DOM 渲染器（WebGL 对 CJK/宽字符支持差，使用默认 DOM 渲染确保中文正常显示）──
 
@@ -295,7 +324,7 @@ export default function Terminal({ sessionId, serverId, historyServerId, status,
 
         // 如果没有正在预测的字符，直接使用原生 Uint8Array 交给 xterm.js 渲染（最快且无损，避免 TextDecoder 吃字符）
         if (!localEchoRef.current || pendingEchoes.length === 0) {
-          termRef.current.write(typeof ev.data === 'string' ? ev.data : new Uint8Array(ev.data));
+          smartWrite(typeof ev.data === 'string' ? ev.data : new Uint8Array(ev.data));
           return;
         }
 
@@ -364,7 +393,7 @@ export default function Terminal({ sessionId, serverId, historyServerId, status,
         
         // 写回经过滤的文本
         const newText = parts.join('');
-        termRef.current.write(newText);
+        smartWrite(newText);
       };
 
       ws.onerror = (e) => console.error('[Terminal] WebSocket error', e);
@@ -462,10 +491,11 @@ export default function Terminal({ sessionId, serverId, historyServerId, status,
   // ── 状态变化提示 ────────────────────────────────────────────────
   useEffect(() => {
     if (!termRef.current) return;
+    const sw = smartWriteRef.current;
     if (status === 'error') {
-      termRef.current.write('\r\n\x1b[31m✗  Connection failed\x1b[0m\r\n');
+      sw ? sw('\r\n\x1b[31m✗  Connection failed\x1b[0m\r\n') : termRef.current.write('\r\n\x1b[31m✗  Connection failed\x1b[0m\r\n');
     } else if (status === 'closed') {
-      termRef.current.write('\r\n\x1b[33m●  Disconnected\x1b[0m\r\n');
+      sw ? sw('\r\n\x1b[33m●  Disconnected\x1b[0m\r\n') : termRef.current.write('\r\n\x1b[33m●  Disconnected\x1b[0m\r\n');
     }
   }, [status]);
 
@@ -496,6 +526,29 @@ export default function Terminal({ sessionId, serverId, historyServerId, status,
       if (resizeTimer) clearTimeout(resizeTimer);
       observer.disconnect();
     };
+  }, [isActive, sessionId]);
+
+  // ── 终端切换回来时，重新 fit ────────────────────────────────────
+  const prevActiveRef = useRef(false);
+  useEffect(() => {
+    if (!isActive || !termRef.current || !fitAddonRef.current) return;
+    // 仅从非活跃→活跃时才 fit（切换标签页）
+    const justActivated = !prevActiveRef.current && isActive;
+    prevActiveRef.current = isActive;
+    if (!justActivated) return;
+    const raf = requestAnimationFrame(() => {
+      try {
+        const rect = containerRef.current?.getBoundingClientRect();
+        if (rect && rect.width > 0 && rect.height > 0) {
+          fitAddonRef.current.fit();
+          const { cols, rows } = termRef.current;
+          AppGo.ResizeTerminal(sessionId, cols, rows);
+        }
+      } catch (e) {
+        console.error('[Terminal] activate fit error:', e);
+      }
+    });
+    return () => cancelAnimationFrame(raf);
   }, [isActive, sessionId]);
 
   // ── 背景管理与刷新 ────────────────────────────────────────────────

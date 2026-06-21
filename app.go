@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"net/http"
 	"os"
@@ -60,25 +61,22 @@ func (a *App) startup(ctx context.Context) {
 	// 生成随机 token，要求连接时通过 ?token=xxx 携带，防止本机恶意进程注入命令
 	tokenBytes := make([]byte, 32)
 	if _, err := rand.Read(tokenBytes); err != nil {
-		// rand.Read 失败极少见；失败时仍生成一个基于时间的回退 token，避免无法启动
-		a.wsToken = fmt.Sprintf("fallback-%d", time.Now().UnixNano())
-	} else {
-		a.wsToken = hex.EncodeToString(tokenBytes)
+		log.Fatalf("生成 WebSocket Token 失败: %v", err)
 	}
+	a.wsToken = hex.EncodeToString(tokenBytes)
 
 	mux := http.NewServeMux()
 	// 仅允许 Wails WebView 的 Origin（防止本机恶意网页通过 DNS rebinding 连接）
 	upgrader := websocket.Upgrader{
 		CheckOrigin: func(r *http.Request) bool {
 			origin := r.Header.Get("Origin")
-			// 拒绝空 Origin，防止非浏览器进程直连
 			if origin == "" {
 				return false
 			}
-			// Wails WebView 的 Origin 通常是 wails:// 或 http://wails.localhost
-			return strings.HasPrefix(origin, "wails://") ||
-				strings.HasPrefix(origin, "http://wails.") ||
-				strings.HasPrefix(origin, "https://wails.")
+			// 精确匹配 Wails WebView Origin，防止 DNS rebinding 攻击
+			return origin == "wails://wails" ||
+				origin == "http://wails.localhost" ||
+				origin == "https://wails.localhost"
 		},
 		ReadBufferSize:  4096,
 		WriteBufferSize: 32768,
@@ -216,6 +214,11 @@ func (a *App) GetConnections() []Connection {
 	return a.configManager.GetConnections()
 }
 
+// GetConnectionsMasked 返回掩码后的连接列表，用于前端显示
+func (a *App) GetConnectionsMasked() []Connection {
+	return a.configManager.GetConnectionsMasked()
+}
+
 // SaveConnection saves a new or existing connection
 func (a *App) SaveConnection(conn Connection) Connection {
 	return a.configManager.SaveConnection(conn)
@@ -313,6 +316,11 @@ func (a *App) WriteFile(sessionId string, path string, content string) error {
 // DeleteItem deletes a file or directory via SFTP
 func (a *App) DeleteItem(sessionId string, path string, isDir bool) error {
 	return a.sshManager.DeleteItem(sessionId, path, isDir)
+}
+
+// DeleteItemShell 用 rm -rf 删除（和 FinalShell 一致）
+func (a *App) DeleteItemShell(sessionId string, path string) error {
+	return a.sshManager.DeleteItemShell(sessionId, path)
 }
 
 // Mkdir creates a directory via SFTP

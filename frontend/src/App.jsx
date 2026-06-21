@@ -4,6 +4,7 @@ import * as AppGo from '../wailsjs/go/main/App.js';
 import ServerList from './components/ServerList.jsx';
 import AddServerModal from './components/AddServerModal.jsx';
 import Terminal from './components/Terminal.jsx';
+import ErrorBoundary from './components/ErrorBoundary.jsx';
 import ProbePanel from './components/ProbePanel.jsx';
 import FileManager from './components/FileManager.jsx';
 import SettingsModal from './components/SettingsModal.jsx';
@@ -283,7 +284,7 @@ export default function App() {
       id: '',
       name: quickName.trim() || quickHost.trim(),
       host: quickHost.trim(),
-      port: parseInt(quickPort, 10) || 22,
+      port: Math.max(1, Math.min(65535, parseInt(quickPort, 10) || 22)),
       username: quickUser.trim(),
       authMethod: quickAuth === 'key' ? 'privateKey' : 'password',
       password: quickPass,
@@ -393,7 +394,7 @@ export default function App() {
   // ── Load servers ───────────────────────────────────────────
   const loadServers = useCallback(async () => {
     try {
-      const data = await AppGo.GetConnections();
+      const data = await AppGo.GetConnectionsMasked();
       setServers(data || []);
     } catch (e) {
       addToast(t('加载服务器配置失败'), 'error');
@@ -1437,15 +1438,17 @@ export default function App() {
                             display: ((contentTab === 'terminal' || s.status !== 'connected') && activeTerminalId === t.id) ? 'flex' : 'none',
                             flexDirection: 'column',
                           }}>
-                            <Terminal
-                              sessionId={t.id}
-                              serverId={s.id}
-                              historyServerId={s.serverId}
-                              status={s.status}
-                              isActive={activeSessionId === s.id && activeTerminalId === t.id && (contentTab === 'terminal' || fileManagerPosition !== 'tab')}
-                              serverName={s.serverName}
-                              connectedSessions={connectedSessions}
-                            />
+                            <ErrorBoundary label={`终端 ${t.id} 渲染出错`}>
+                              <Terminal
+                                sessionId={t.id}
+                                serverId={s.id}
+                                historyServerId={s.serverId}
+                                status={s.status}
+                                isActive={activeSessionId === s.id && activeTerminalId === t.id && (contentTab === 'terminal' || fileManagerPosition !== 'tab')}
+                                serverName={s.serverName}
+                                connectedSessions={connectedSessions}
+                              />
+                            </ErrorBoundary>
                           </div>
                         ))}
                       </div>

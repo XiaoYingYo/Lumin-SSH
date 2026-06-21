@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"encoding/base64"
 	"errors"
 	"fmt"
@@ -64,6 +65,7 @@ type SSHManager struct {
 	pendingCancels   map[string]context.CancelFunc // sessionId -> cancel func for in-progress Connect
 	mu               sync.RWMutex
 	pendingMu        sync.Mutex
+	bufPool          sync.Pool
 }
 
 // dialAddr 拼接 host:port，自动处理 IPv6 地址
@@ -84,6 +86,12 @@ func NewSSHManager() *SSHManager {
 		pendingHostKeys:  make(map[string]*PendingHostKey),
 		tempAcceptedKeys: make(map[string]string),
 		pendingCancels:   make(map[string]context.CancelFunc),
+		bufPool: sync.Pool{
+			New: func() any {
+				buf := make([]byte, 32768)
+				return &buf
+			},
+		},
 	}
 }
 
@@ -129,26 +137,9 @@ func (m *SSHManager) Connect(sessionId string, conn Connection) error {
 			authMethods = append(authMethods, ssh.PublicKeys(signer))
 		}
 
-		knownHostsPath := getKnownHostsPath()
-		if err := os.MkdirAll(filepath.Dir(knownHostsPath), 0700); err != nil {
-			log.Printf("[Connect] MkdirAll for known_hosts dir failed: %v", err)
-		}
-		if _, err := os.Stat(knownHostsPath); os.IsNotExist(err) {
-			if err := os.WriteFile(knownHostsPath, []byte(""), 0600); err != nil {
-				log.Printf("[Connect] failed to create known_hosts file: %v", err)
-			}
-		}
-
-		hostKeyCallback, err := knownhosts.New(knownHostsPath)
+		hostKeyCallback, err := initKnownHostsCallback()
 		if err != nil {
-			// 创建空 known_hosts 文件后重试，而非禁用校验
-			if err := os.WriteFile(knownHostsPath, []byte(""), 0600); err != nil {
-				log.Printf("[Connect] failed to recreate known_hosts file: %v", err)
-			}
-			hostKeyCallback, err = knownhosts.New(knownHostsPath)
-			if err != nil {
-				return fmt.Errorf("无法初始化主机密钥校验: %w", err)
-			}
+			return err
 		}
 
 		customHostKeyCallback := func(hostname string, remote net.Addr, key ssh.PublicKey) error {
@@ -220,7 +211,6 @@ func (m *SSHManager) Connect(sessionId string, conn Connection) error {
 				"rsa-sha2-512",
 				"rsa-sha2-256",
 				"ssh-rsa",
-				"ssh-dss",
 			},
 		}
 
@@ -429,6 +419,14 @@ func (m *SSHManager) Connect(sessionId string, conn Connection) error {
 		}
 	}
 
+	shellPath := detectRemoteShell(client)
+	launchCmd, remoteHistoryActive := buildShellLaunchCommand(shellPath)
+
+	return m.setupSession(client, connKey, sessionId, "", launchCmd, remoteHistoryActive)
+}
+
+// setupSession 创建 shell session 的共享逻辑
+func (m *SSHManager) setupSession(client *ssh.Client, connKey, sessionId, groupSessionId, launchCmd string, remoteHistoryActive bool) error {
 	session, err := client.NewSession()
 	if err != nil {
 		return err
@@ -461,10 +459,7 @@ func (m *SSHManager) Connect(sessionId string, conn Connection) error {
 		return err
 	}
 
-	shellPath := detectRemoteShell(client)
-	launchCmd, remoteHistoryActive := buildShellLaunchCommand(shellPath)
-
-	if remoteHistoryActive {
+	if launchCmd != "" {
 		err = session.Start(launchCmd)
 	} else {
 		err = session.Shell()
@@ -480,13 +475,17 @@ func (m *SSHManager) Connect(sessionId string, conn Connection) error {
 	}
 
 	m.mu.Lock()
-	m.sessions[sessionId] = &SessionData{
+	sd := &SessionData{
 		ConnKey:             connKey,
 		Session:             session,
 		Stdin:               stdin,
 		HistoryStream:       historyStream,
 		RemoteHistoryActive: remoteHistoryActive,
 	}
+	if groupSessionId != "" {
+		sd.GroupSessionId = groupSessionId
+	}
+	m.sessions[sessionId] = sd
 	m.connTerminals[connKey] = append(m.connTerminals[connKey], sessionId)
 	m.mu.Unlock()
 
@@ -497,7 +496,9 @@ func (m *SSHManager) Connect(sessionId string, conn Connection) error {
 }
 
 func (m *SSHManager) pipeOutput(sessionId string, r io.Reader, historyStream *commandHistoryStream) {
-	buf := make([]byte, 32768)
+	bufPtr := m.bufPool.Get().(*[]byte)
+	defer m.bufPool.Put(bufPtr)
+	buf := *bufPtr
 
 	// 查找 GroupSessionId（子终端时使用父会话 ID 归组历史事件）
 	eventSessionId := sessionId
@@ -687,75 +688,24 @@ func (m *SSHManager) OpenTerminal(sessionId string) (string, error) {
 	remoteHistoryActive := existing.RemoteHistoryActive
 	m.mu.RUnlock()
 
-	session, err := entry.Client.NewSession()
-	if err != nil {
-		return "", err
+	// 生成新 session ID
+	randomId := make([]byte, 8)
+	if _, err := rand.Read(randomId); err != nil {
+		return "", fmt.Errorf("生成 session ID 失败: %w", err)
 	}
+	newId := fmt.Sprintf("term_%x", randomId)
 
-	modes := ssh.TerminalModes{
-		ssh.ECHO:          1,
-		ssh.TTY_OP_ISPEED: 115200,
-		ssh.TTY_OP_OSPEED: 115200,
-	}
-
-	if err := session.RequestPty("xterm-256color", 24, 80, modes); err != nil {
-		session.Close()
-		return "", err
-	}
-
-	stdin, err := session.StdinPipe()
-	if err != nil {
-		session.Close()
-		return "", err
-	}
-	stdout, err := session.StdoutPipe()
-	if err != nil {
-		session.Close()
-		return "", err
-	}
-	stderr, err := session.StderrPipe()
-	if err != nil {
-		session.Close()
-		return "", err
-	}
-
+	// 检测 shell 并构建启动命令
+	launchCmd := ""
 	if remoteHistoryActive {
 		shellPath := detectRemoteShell(entry.Client)
-		launchCmd, _ := buildShellLaunchCommand(shellPath)
-		if launchCmd != "" {
-			err = session.Start(launchCmd)
-		} else {
-			err = session.Shell()
-		}
-	} else {
-		err = session.Shell()
+		launchCmd, _ = buildShellLaunchCommand(shellPath)
 	}
+
+	err := m.setupSession(entry.Client, connKey, newId, sessionId, launchCmd, remoteHistoryActive)
 	if err != nil {
-		session.Close()
 		return "", err
 	}
-
-	var historyStream *commandHistoryStream
-	if remoteHistoryActive {
-		historyStream = newCommandHistoryStream()
-	}
-
-	newId := fmt.Sprintf("term_%d", time.Now().UnixNano())
-
-	m.mu.Lock()
-	m.sessions[newId] = &SessionData{
-		ConnKey:             connKey,
-		Session:             session,
-		Stdin:               stdin,
-		HistoryStream:       historyStream,
-		RemoteHistoryActive: remoteHistoryActive,
-		GroupSessionId:      sessionId, // 使用父会话 ID 用于历史事件归组
-	}
-	m.connTerminals[connKey] = append(m.connTerminals[connKey], newId)
-	m.mu.Unlock()
-
-	go m.pipeOutput(newId, stdout, historyStream)
-	go m.pipeOutput(newId, stderr, nil)
 
 	return newId, nil
 }
@@ -767,6 +717,31 @@ func getKnownHostsPath() string {
 		home = os.Getenv("USERPROFILE") // Windows
 	}
 	return filepath.Join(home, ".ssh", "known_hosts")
+}
+
+// initKnownHostsCallback 初始化 known_hosts 文件并返回 HostKeyCallback
+func initKnownHostsCallback() (ssh.HostKeyCallback, error) {
+	knownHostsPath := getKnownHostsPath()
+	if err := os.MkdirAll(filepath.Dir(knownHostsPath), 0700); err != nil {
+		log.Printf("[initKnownHosts] MkdirAll failed: %v", err)
+	}
+	if _, err := os.Stat(knownHostsPath); os.IsNotExist(err) {
+		if err := os.WriteFile(knownHostsPath, []byte(""), 0600); err != nil {
+			log.Printf("[initKnownHosts] failed to create known_hosts: %v", err)
+		}
+	}
+	cb, err := knownhosts.New(knownHostsPath)
+	if err != nil {
+		// known_hosts 损坏，重建空文件后重试
+		if err := os.WriteFile(knownHostsPath, []byte(""), 0600); err != nil {
+			log.Printf("[initKnownHosts] failed to recreate known_hosts: %v", err)
+		}
+		cb, err = knownhosts.New(knownHostsPath)
+		if err != nil {
+			return nil, fmt.Errorf("无法初始化主机密钥校验: %w", err)
+		}
+	}
+	return cb, nil
 }
 
 // AcceptHostKeyChange 处理用户对主机密钥变更的确认
@@ -920,7 +895,14 @@ func (m *SSHManager) executeCmdWithClient(client *ssh.Client, cmd string) (strin
 	var stdoutBuf bytes.Buffer
 	session.Stdout = &stdoutBuf
 
-	// 防止服务器无响应时 goroutine/调用方永久阻塞
+	return runCommandWithSession(session, cmd, 30*time.Second)
+}
+
+// runCommandWithSession 在 session 上执行命令，带超时控制
+func runCommandWithSession(session *ssh.Session, cmd string, timeout time.Duration) (string, error) {
+	var stdoutBuf bytes.Buffer
+	session.Stdout = &stdoutBuf
+
 	errCh := make(chan error, 1)
 	go func() {
 		defer func() {
@@ -934,9 +916,9 @@ func (m *SSHManager) executeCmdWithClient(client *ssh.Client, cmd string) (strin
 	select {
 	case err := <-errCh:
 		return stdoutBuf.String(), err
-	case <-time.After(30 * time.Second):
-		// 超时后由 defer session.Close() 统一关闭，无需在此重复 Close
-		return "", fmt.Errorf("command timed out after 30 seconds")
+	case <-time.After(timeout):
+		go session.Close()
+		return "", fmt.Errorf("command timed out after %v", timeout)
 	}
 }
 
@@ -1645,7 +1627,7 @@ func (m *SSHManager) WriteFile(sessionId string, path string, content string) er
 }
 
 func (m *SSHManager) DeleteItem(sessionId string, path string, isDir bool) error {
-	// 拒绝删除危险路径，防止 rm -rf 误删根目录或家目录
+	// 拒绝删除危险路径，防止误删根目录或家目录
 	if path == "" || path == "/" || path == "/*" || path == "~" || path == "~/*" {
 		return fmt.Errorf("refusing to delete dangerous path: %q", path)
 	}
@@ -1654,6 +1636,12 @@ func (m *SSHManager) DeleteItem(sessionId string, path string, isDir bool) error
 		return err
 	}
 	if isDir {
+		// 先试 SFTP RemoveAll，失败则用 rm -rf（和 FinalShell 一致）
+		if sftpClient != nil {
+			if err := sftpClient.RemoveAll(path); err == nil {
+				return nil
+			}
+		}
 		_, err := m.executeCmdWithClient(client, fmt.Sprintf("rm -rf '%s'", strings.ReplaceAll(path, "'", "'\\''")))
 		return err
 	}
@@ -1661,6 +1649,19 @@ func (m *SSHManager) DeleteItem(sessionId string, path string, isDir bool) error
 		return fmt.Errorf("SFTP not available")
 	}
 	return sftpClient.Remove(path)
+}
+
+// DeleteItemShell 用 rm -rf 删除（和 FinalShell 一致）
+func (m *SSHManager) DeleteItemShell(sessionId string, path string) error {
+	if path == "" || path == "/" || path == "/*" || path == "~" || path == "~/*" {
+		return fmt.Errorf("refusing to delete dangerous path: %q", path)
+	}
+	client, _, err := m.getClientEntry(sessionId)
+	if err != nil {
+		return err
+	}
+	_, err = m.executeCmdWithClient(client, fmt.Sprintf("rm -rf '%s'", strings.ReplaceAll(path, "'", "'\\''")))
+	return err
 }
 
 func (m *SSHManager) Mkdir(sessionId string, path string) error {

@@ -43,13 +43,15 @@ type ConfigManager struct {
 	historyDir     string
 	globalHistFile string
 	mu             sync.Mutex
+	connCache      []Connection // 缓存连接列表
+	connCacheDirty bool         // 缓存是否需要刷新
 }
 
 func NewConfigManager() *ConfigManager {
 	appData, _ := os.UserConfigDir()
 	dir := filepath.Join(appData, "Lumin", "config")
 
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	if err := os.MkdirAll(dir, 0700); err != nil {
 		log.Fatalf("无法创建配置目录 %s: %v", dir, err)
 	}
 
@@ -106,23 +108,7 @@ func NewConfigManager() *ConfigManager {
 }
 
 func (c *ConfigManager) encrypt(text string) (string, error) {
-	if text == "" {
-		return "", nil
-	}
-	block, err := aes.NewCipher(c.key)
-	if err != nil {
-		return "", fmt.Errorf("aes.NewCipher: %w", err)
-	}
-	gcm, err := cipher.NewGCM(block)
-	if err != nil {
-		return "", fmt.Errorf("cipher.NewGCM: %w", err)
-	}
-	nonce := make([]byte, gcm.NonceSize())
-	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
-		return "", fmt.Errorf("generate nonce: %w", err)
-	}
-	ciphertext := gcm.Seal(nonce, nonce, []byte(text), nil)
-	return fmt.Sprintf("%x", ciphertext), nil
+	return c.encryptWithKey(text, c.key)
 }
 
 func (c *ConfigManager) encryptWithKey(text string, key []byte) (string, error) {
@@ -178,7 +164,18 @@ func (c *ConfigManager) decryptWithKey(hexText string, key []byte) string {
 func (c *ConfigManager) GetConnections() []Connection {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return c.getConnectionsLocked()
+	if !c.connCacheDirty && c.connCache != nil {
+		// 返回缓存副本
+		result := make([]Connection, len(c.connCache))
+		copy(result, c.connCache)
+		return result
+	}
+	conns := c.getConnectionsLocked()
+	c.connCache = conns
+	c.connCacheDirty = false
+	result := make([]Connection, len(conns))
+	copy(result, conns)
+	return result
 }
 
 // getConnectionsLocked 读取连接列表，调用方需持有 c.mu
@@ -209,6 +206,23 @@ func (c *ConfigManager) GetConnectionByID(id string) *Connection {
 	return nil
 }
 
+// GetConnectionsMasked 返回掩码后的连接列表，用于前端显示
+func (c *ConfigManager) GetConnectionsMasked() []Connection {
+	conns := c.GetConnections()
+	for i := range conns {
+		if conns[i].Password != "" {
+			conns[i].Password = "****"
+		}
+		if conns[i].PrivateKey != "" {
+			conns[i].PrivateKey = "[key configured]"
+		}
+		if conns[i].Passphrase != "" {
+			conns[i].Passphrase = "****"
+		}
+	}
+	return conns
+}
+
 func (c *ConfigManager) SaveConnection(conn Connection) Connection {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -237,6 +251,7 @@ func (c *ConfigManager) SaveConnection(conn Connection) Connection {
 	if err := c.saveConnectionsFile(conns); err != nil {
 		log.Printf("[SaveConnection] failed to save connections: %v", err)
 	}
+	c.connCacheDirty = true // 标记缓存需要刷新
 	go c.AutoSync()
 	return conn
 }
@@ -296,6 +311,7 @@ func (c *ConfigManager) DeleteConnection(id string) bool {
 	if err := c.saveConnectionsFile(filtered); err != nil {
 		log.Printf("[DeleteConnection] failed to save connections: %v", err)
 	}
+	c.connCacheDirty = true // 标记缓存需要刷新
 
 	// 清理该服务器的历史文件
 	histPath := filepath.Join(c.historyDir, id+".json")
@@ -551,6 +567,8 @@ func (c *ConfigManager) SaveParamHistory(jsonStr string) error {
 
 // GetCommandHistory 读取指定会话的命令历史
 func (c *ConfigManager) GetCommandHistory(sessionId string) string {
+	// 防止路径穿越
+	sessionId = filepath.Base(sessionId)
 	path := filepath.Join(c.historyDir, sessionId+".json")
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -561,6 +579,8 @@ func (c *ConfigManager) GetCommandHistory(sessionId string) string {
 
 // SaveCommandHistory 保存指定会话的命令历史
 func (c *ConfigManager) SaveCommandHistory(sessionId, jsonStr string) error {
+	// 防止路径穿越
+	sessionId = filepath.Base(sessionId)
 	path := filepath.Join(c.historyDir, sessionId+".json")
 	return os.WriteFile(path, []byte(jsonStr), 0600)
 }

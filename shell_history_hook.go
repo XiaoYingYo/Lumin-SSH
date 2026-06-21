@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"fmt"
 	"path"
 	"strings"
@@ -21,34 +20,19 @@ func detectRemoteShell(client *ssh.Client) string {
 	}
 	defer session.Close()
 
-	var stdout bytes.Buffer
-	session.Stdout = &stdout
-
 	const cmd = `getent passwd "$(id -un 2>/dev/null || printf '%s' "$USER")" 2>/dev/null | cut -d: -f7 | head -n1 || true; printf '%s\n' "${SHELL:-}"`
 
-	// 通过 goroutine + select 实现 10 秒超时，防止服务器无响应时永久阻塞
-	done := make(chan error, 1)
-	go func() {
-		done <- session.Run(cmd)
-	}()
-
-	select {
-	case err := <-done:
-		if err != nil {
-			return ""
-		}
-		for _, line := range strings.Split(stdout.String(), "\n") {
-			trimmed := strings.TrimSpace(line)
-			if trimmed != "" {
-				return trimmed
-			}
-		}
-		return ""
-	case <-time.After(10 * time.Second):
-		// 超时后异步关闭 session 以解除阻塞的 Run
-		go session.Close()
+	stdout, err := runCommandWithSession(session, cmd, 10*time.Second)
+	if err != nil {
 		return ""
 	}
+	for _, line := range strings.Split(stdout, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed != "" {
+			return trimmed
+		}
+	}
+	return ""
 }
 
 func buildShellLaunchCommand(shellPath string) (string, bool) {

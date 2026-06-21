@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"net"
 	"os"
 	"path/filepath"
@@ -135,28 +134,13 @@ func (c *ConfigManager) SaveSFTPConfig(config map[string]string) error {
 // sftpHostKeyCallback 返回基于 known_hosts 的 TOFU（首次信任）主机密钥校验回调。
 // 首次连接时自动将主机密钥写入 known_hosts；后续连接若密钥不匹配则拒绝。
 func sftpHostKeyCallback() ssh.HostKeyCallback {
-	hostKeyPath := getKnownHostsPath()
-	if err := os.MkdirAll(filepath.Dir(hostKeyPath), 0700); err != nil {
-		log.Printf("[sftpHostKeyCallback] MkdirAll for known_hosts dir failed: %v", err)
-	}
-	if _, err := os.Stat(hostKeyPath); os.IsNotExist(err) {
-		if err := os.WriteFile(hostKeyPath, []byte(""), 0600); err != nil {
-			log.Printf("[sftpHostKeyCallback] failed to create known_hosts file: %v", err)
-		}
-	}
-	cb, err := knownhosts.New(hostKeyPath)
+	cb, err := initKnownHostsCallback()
 	if err != nil {
-		// known_hosts 损坏，重建空文件后重试，而非禁用校验
-		if err := os.WriteFile(hostKeyPath, []byte(""), 0600); err != nil {
-			log.Printf("[sftpHostKeyCallback] failed to recreate known_hosts file: %v", err)
-		}
-		cb, err = knownhosts.New(hostKeyPath)
-		if err != nil {
-			return func(hostname string, remote net.Addr, key ssh.PublicKey) error {
-				return fmt.Errorf("无法初始化主机密钥校验: %w", err)
-			}
+		return func(hostname string, remote net.Addr, key ssh.PublicKey) error {
+			return err
 		}
 	}
+	knownHostsPath := getKnownHostsPath()
 	return func(hostname string, remote net.Addr, key ssh.PublicKey) error {
 		err := cb(hostname, remote, key)
 		if err == nil {
@@ -166,7 +150,7 @@ func sftpHostKeyCallback() ssh.HostKeyCallback {
 		var keyErr *knownhosts.KeyError
 		if errors.As(err, &keyErr) && len(keyErr.Want) == 0 {
 			line := knownhosts.Line([]string{knownhosts.Normalize(hostname)}, key)
-			if f, ferr := os.OpenFile(hostKeyPath, os.O_APPEND|os.O_WRONLY, 0600); ferr == nil {
+			if f, ferr := os.OpenFile(knownHostsPath, os.O_APPEND|os.O_WRONLY, 0600); ferr == nil {
 				if _, werr := f.WriteString(line + "\n"); werr == nil {
 					f.Close()
 					return nil

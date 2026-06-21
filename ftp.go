@@ -6,7 +6,6 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
-	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -118,14 +117,9 @@ func (c *ConfigManager) SaveFTPConfig(config map[string]string) error {
 
 func (c *ConfigManager) TestFTPConnection(host string, port int, username, password string) error {
 	addr := dialAddr(host, port)
-	// 优先尝试显式 TLS，失败则回退到明文
 	client, err := ftp.Dial(addr, ftp.DialWithTimeout(10*time.Second), ftp.DialWithExplicitTLS(&tls.Config{ServerName: host}))
 	if err != nil {
-		log.Printf("FTP TLS 拨号失败 %s，回退到明文连接: %v", addr, err)
-		client, err = ftp.Dial(addr, ftp.DialWithTimeout(10*time.Second))
-		if err != nil {
-			return err
-		}
+		return fmt.Errorf("FTP TLS 连接失败 %s: %w", addr, err)
 	}
 	defer client.Quit()
 
@@ -142,14 +136,9 @@ func (c *ConfigManager) newFTPClient() (*ftp.ServerConn, error) {
 		return nil, fmt.Errorf("FTP not configured")
 	}
 	addr := dialAddr(conf.Host, conf.Port)
-	// 优先尝试显式 TLS，失败则回退到明文
 	client, err := ftp.Dial(addr, ftp.DialWithTimeout(10*time.Second), ftp.DialWithExplicitTLS(&tls.Config{ServerName: conf.Host}))
 	if err != nil {
-		log.Printf("FTP TLS 拨号失败 %s，回退到明文连接: %v", addr, err)
-		client, err = ftp.Dial(addr, ftp.DialWithTimeout(10*time.Second))
-		if err != nil {
-			return nil, err
-		}
+		return nil, fmt.Errorf("FTP TLS 连接失败 %s: %w", addr, err)
 	}
 	err = client.Login(conf.Username, conf.Password)
 	if err != nil {

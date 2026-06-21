@@ -270,7 +270,7 @@ function ChmodDialog({ path, permission, mode, onSave, onClose, t }) {
 }
 
 // Context menu component
-function ContextMenu({ pos, item, onClose, onDownload, onEdit, onRename, onDelete, onMkdir, onNewFile, onCompress, onUncompress, onChmod, t }) {
+function ContextMenu({ pos, item, onClose, onDownload, onEdit, onRename, onDelete, onDeleteShell, onMkdir, onNewFile, onCompress, onUncompress, onChmod, t }) {
   const ref = useRef(null);
   const [adjusted, setAdjusted] = useState({ left: pos.x, top: pos.y });
 
@@ -349,7 +349,12 @@ function ContextMenu({ pos, item, onClose, onDownload, onEdit, onRename, onDelet
       )}
       {item && (
         <div className="context-menu-item danger" onClick={onDelete}>
-          <Trash2 size={14} /> {t('删除')}
+          <Trash2 size={14} /> {t('删除')} (SFTP)
+        </div>
+      )}
+      {item && (
+        <div className="context-menu-item danger" onClick={onDeleteShell}>
+          <Terminal size={14} /> {t('删除')} (rm -rf)
         </div>
       )}
     </div>
@@ -630,6 +635,19 @@ export default function FileManager({ sessionId, addToast, isActive = true }) {
     if (!(await window.luminDialog?.confirm(`${t('确定删除')}${item.name}？${t('此操作不可撤销')}`))) return;
     try {
       await AppGo.DeleteItem(sessionId, remotePath, item.isDirectory);
+      addToast(`${t('已删除')}: ${item.name}`, 'success');
+      await loadDir(currentPath);
+    } catch (err) {
+      addToast(`${t('删除失败')}: ${err}`, 'error');
+    }
+  };
+
+  // Delete via rm -rf
+  const handleDeleteShell = async (item) => {
+    const remotePath = joinPath(currentPath, item.name);
+    if (!(await window.luminDialog?.confirm(`${t('确定删除')}${item.name}？(rm -rf) ${t('此操作不可撤销')}`))) return;
+    try {
+      await AppGo.DeleteItemShell(sessionId, remotePath);
       addToast(`${t('已删除')}: ${item.name}`, 'success');
       await loadDir(currentPath);
     } catch (err) {
@@ -1113,6 +1131,7 @@ export default function FileManager({ sessionId, addToast, isActive = true }) {
           onRename={() => { startRename(contextMenu.item); closeContextMenu(); }}
           onChmod={() => { handleChmod(contextMenu.item); closeContextMenu(); }}
           onDelete={() => { handleDelete(contextMenu.item); closeContextMenu(); }}
+          onDeleteShell={() => { handleDeleteShell(contextMenu.item); closeContextMenu(); }}
           onMkdir={() => { handleMkdir(); closeContextMenu(); }}
           onNewFile={() => { handleNewFile(); closeContextMenu(); }}
           onCompress={() => { handleCompress(contextMenu.item); closeContextMenu(); }}
