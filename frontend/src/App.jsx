@@ -1284,6 +1284,7 @@ export default function App() {
                             display: 'flex',
                             visibility: isTermActive ? 'visible' : 'hidden',
                             pointerEvents: isTermActive ? 'auto' : 'none',
+                            contain: isTermActive ? 'none' : 'strict',
                             flexDirection: 'column',
                           }}>
                             <ErrorBoundary label={`终端 ${t.id} 渲染出错`}>
