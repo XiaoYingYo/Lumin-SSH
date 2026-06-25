@@ -149,7 +149,10 @@ func (c *ConfigManager) backupConnections(s RemoteStorage, maxBackups int) (map[
 		QuickCommands: c.loadRawFile(c.quickCmdFile),
 		SnapshotTime:  c.loadSnapshotTime(),
 	}
-	data, _ := json.MarshalIndent(snap, "", "  ")
+	data, err := json.MarshalIndent(snap, "", "  ")
+	if err != nil {
+		return nil, fmt.Errorf("marshal snapshot: %w", err)
+	}
 	encrypted, err := c.encryptWithKey(string(data), s.EncryptKey())
 	if err != nil {
 		return nil, fmt.Errorf("encrypt snapshot: %w", err)
@@ -266,7 +269,7 @@ func (c *ConfigManager) syncFromProvider(s RemoteStorage) (map[string]interface{
 
 	var backupResult interface{}
 	changed := !connsEqual(deduped, remoteSnap.Connections) ||
-		mergedQuickCmds != remoteSnap.QuickCommands
+		!quickCmdsEqual(mergedQuickCmds, remoteSnap.QuickCommands)
 	if changed {
 		c.bumpSnapshotTime() // 手动同步后更新总时间戳，确保下次自动同步方向正确
 		// 通过可选接口获取后端配置的 maxBackups，未实现者默认 0（不清理）
@@ -298,11 +301,9 @@ func (c *ConfigManager) emitSyncEvent(event string, data map[string]interface{})
 	}
 }
 
-// autoSyncProvider 自动同步：按快照总时间戳判断方向，按 lastSyncTime 判断删除
-// - 所有方向：重叠连接按 per-connection LastModified 取最新，单侧独有按 lastSyncTime 判断删除
-// - 云端更新 → 快捷命令以云端为准
-// - 本地更新 → 快捷命令以本地为准
-// - 相同 → 快捷命令合并
+// autoSyncProvider 自动同步：
+// - 所有方向：重叠连接/快捷命令按 per-item last_modified 取最新，单侧独有按 lastSyncTime 判断删除
+// - 无变化 → 静默跳过
 func (c *ConfigManager) autoSyncProvider(s RemoteStorage, maxBackups int) error {
 	remoteSnap, err := c.fetchLatestBackup(s)
 	if err != nil {
@@ -331,10 +332,10 @@ func (c *ConfigManager) autoSyncProvider(s RemoteStorage, maxBackups int) error 
 	mergedQuickCmds := c.mergeQuickCommands(localQuickCmds, remoteSnap.QuickCommands, lastSyncTime)
 
 	// 本地有变化 → 保存
-	localChanged := !connsEqual(merged, localConns) || mergedQuickCmds != localQuickCmds
+	localChanged := !connsEqual(merged, localConns) || !quickCmdsEqual(mergedQuickCmds, localQuickCmds)
 
 	// 云端有变化 → 需要上传
-	cloudChanged := !connsEqual(merged, remoteSnap.Connections) || mergedQuickCmds != remoteSnap.QuickCommands
+	cloudChanged := !connsEqual(merged, remoteSnap.Connections) || !quickCmdsEqual(mergedQuickCmds, remoteSnap.QuickCommands)
 
 	// 无变化 → 静默跳过
 	if !localChanged && !cloudChanged {
@@ -357,10 +358,13 @@ func (c *ConfigManager) autoSyncProvider(s RemoteStorage, maxBackups int) error 
 			log.Printf("[autoSyncProvider] save: %v", err)
 		}
 		c.connCacheDirty = true
-		c.mu.Unlock()
-		if mergedQuickCmds != localQuickCmds {
-			atomicWriteFile(c.quickCmdFile, []byte(mergedQuickCmds), 0600)
+		if !quickCmdsEqual(mergedQuickCmds, localQuickCmds) {
+			// staleness check: 重读文件确认没有被并发 SaveQuickCommands 覆盖
+			if quickCmdsEqual(c.loadRawFile(c.quickCmdFile), localQuickCmds) {
+				atomicWriteFile(c.quickCmdFile, []byte(mergedQuickCmds), 0600)
+			}
 		}
+		c.mu.Unlock()
 		c.CleanupOrphanedHistory()
 	}
 
@@ -548,12 +552,14 @@ func (c *ConfigManager) RetrySync() string {
 	providers := c.getSyncProviders()
 	var errs []string
 	for _, p := range providers {
-		if cl, ok := p.storage.(storageCloser); ok {
-			defer cl.Close()
-		}
-		if err := c.autoSyncProvider(p.storage, p.maxBackups); err != nil {
-			errs = append(errs, fmt.Sprintf("%T: %v", p.storage, err))
-		}
+		func() {
+			if cl, ok := p.storage.(storageCloser); ok {
+				defer cl.Close()
+			}
+			if err := c.autoSyncProvider(p.storage, p.maxBackups); err != nil {
+				errs = append(errs, fmt.Sprintf("%T: %v", p.storage, err))
+			}
+		}()
 	}
 	if len(errs) > 0 {
 		return strings.Join(errs, "; ")
@@ -572,6 +578,24 @@ func cmdKey(m map[string]interface{}) string {
 func cmdLastModified(m map[string]interface{}) int64 {
 	v, _ := m["last_modified"].(float64)
 	return int64(v)
+}
+
+// quickCmdsEqual JSON 语义比较（忽略 key 顺序），避免前端 JSON.stringify 和 Go json.MarshalIndent 的 key 排序差异导致误判
+func quickCmdsEqual(a, b string) bool {
+	if a == b {
+		return true
+	}
+	var va, vb interface{}
+	if err := json.Unmarshal([]byte(a), &va); err != nil {
+		return false
+	}
+	if err := json.Unmarshal([]byte(b), &vb); err != nil {
+		return false
+	}
+	// 重新 marshal 为规范形式比较
+	da, _ := json.Marshal(va)
+	db, _ := json.Marshal(vb)
+	return string(da) == string(db)
 }
 
 // mergeQuickCommands 合并本地和远端的快捷命令列表：
