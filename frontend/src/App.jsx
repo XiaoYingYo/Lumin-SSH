@@ -336,7 +336,7 @@ export default function App() {
     setConnectingServer({ server: tempServer, sessionId, startTime: Date.now() });
 
     try {
-      const savedServer = await AppGo.SaveConnection(tempServer);
+      const savedServer = await AppGo.SaveConnection(tempServer, true);
       await loadServers();
 
       await AppGo.ConnectSSH(sessionId, savedServer.id);

@@ -243,8 +243,8 @@ func (a *App) GetConnectionsMasked() []Connection {
 }
 
 // SaveConnection saves a new or existing connection
-func (a *App) SaveConnection(conn Connection) Connection {
-	return a.configManager.SaveConnection(conn)
+func (a *App) SaveConnection(conn Connection, noSync ...bool) Connection {
+	return a.configManager.SaveConnection(conn, noSync...)
 }
 
 // DeleteConnection removes a connection by ID
@@ -280,7 +280,7 @@ func (a *App) ReconnectWithPassword(sessionId string, connId string, newPassword
 	}
 	conn.Password = newPassword
 	if persist {
-		a.configManager.SaveConnection(conn)
+		a.configManager.SaveConnection(conn, true) // noSync: 连接成功后 OS 更新一起同步
 	}
 
 	// 清理旧会话
