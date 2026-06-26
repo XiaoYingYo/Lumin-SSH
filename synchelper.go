@@ -96,7 +96,7 @@ func connsEqual(a, b []Connection) bool {
 		if e.Name != c.Name || e.Host != c.Host || e.Port != c.Port ||
 			e.Username != c.Username || e.Password != c.Password ||
 			e.AuthMethod != c.AuthMethod || e.PrivateKey != c.PrivateKey ||
-			e.Passphrase != c.Passphrase || e.Os != c.Os {
+			e.Passphrase != c.Passphrase || e.Os != c.Os || e.Group != c.Group {
 			return false
 		}
 	}

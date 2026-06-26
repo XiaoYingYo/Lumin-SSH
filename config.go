@@ -41,6 +41,7 @@ type Connection struct {
 	AuthMethod   string `json:"authMethod"`
 	PrivateKey   string `json:"privateKey,omitempty"`
 	Passphrase   string `json:"passphrase,omitempty"`
+	Group        string `json:"group,omitempty"` // 服务器分组，空=未分组
 	Os           string `json:"os,omitempty"`
 	LastModified int64  `json:"last_modified,omitempty"` // Unix 毫秒时间戳，合并时判断新旧
 }
@@ -434,6 +435,27 @@ func (c *ConfigManager) loadLastSyncTime() int64 {
 // saveLastSyncTime 保存上次同步时间戳
 func (c *ConfigManager) saveLastSyncTime(t int64) {
 	atomicWriteFile(c.lastSyncFile, []byte(fmt.Sprintf("%d", t)), 0600)
+}
+
+// SetConnectionGroup 仅更新服务器的分组字段，不影响密码等敏感数据
+func (c *ConfigManager) SetConnectionGroup(id string, group string) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	conns := c.getConnectionsLocked()
+	for i, conn := range conns {
+		if conn.ID == id {
+			conns[i].Group = group
+			conns[i].LastModified = time.Now().UnixMilli()
+			if err := c.saveConnectionsFile(conns); err != nil {
+				return err
+			}
+			c.bumpSnapshotTime()
+			c.connCacheDirty = true
+			go c.AutoSync()
+			return nil
+		}
+	}
+	return fmt.Errorf("connection not found: %s", id)
 }
 
 func (c *ConfigManager) DeleteConnection(id string) bool {

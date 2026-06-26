@@ -1034,6 +1034,22 @@ export default function App() {
     );
   }, [servers, searchQuery]);
 
+  const allGroups = useMemo(() => {
+    const s = new Set();
+    for (const srv of servers) { if (srv.group) s.add(srv.group); }
+    return [...s].sort((a, b) => a.localeCompare(b));
+  }, [servers]);
+
+  const handleMoveGroup = useCallback(async (serverId, group) => {
+    try {
+      await AppGo.SetConnectionGroup(serverId, group);
+      await loadServers();
+      addToast(t('已移动到分组') + (group ? `「${group}」` : ''), 'success');
+    } catch (err) {
+      addToast(err, 'error');
+    }
+  }, [loadServers, addToast]);
+
   const connectedSessions = useMemo(() => {
     const seen = new Set();
     return sessions
@@ -1145,6 +1161,8 @@ export default function App() {
             onConnect={connectServer}
             onEdit={(s) => setAddServerModal({ open: true, server: s })}
             onDelete={handleDeleteServer}
+            onMoveGroup={handleMoveGroup}
+            addToast={addToast}
           />
         </div>
 
@@ -1423,6 +1441,7 @@ export default function App() {
           server={addServerModal.server}
           onSave={handleSaveServer}
           onClose={() => setAddServerModal({ open: false, server: null })}
+          allGroups={allGroups}
         />
       )}
 

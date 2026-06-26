@@ -252,6 +252,11 @@ func (a *App) DeleteConnection(id string) bool {
 	return a.configManager.DeleteConnection(id)
 }
 
+// SetConnectionGroup 仅更新服务器分组
+func (a *App) SetConnectionGroup(id string, group string) error {
+	return a.configManager.SetConnectionGroup(id, group)
+}
+
 // ConnectSSH establishes an SSH connection
 func (a *App) ConnectSSH(sessionId string, connId string) error {
 	conn, ok := a.configManager.GetConnectionByID(connId)

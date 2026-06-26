@@ -14,7 +14,7 @@ const defaultForm = {
   passphrase: '',
 };
 
-export default function AddServerModal({ server, onSave, onClose }) {
+export default function AddServerModal({ server, onSave, onClose, allGroups = [] }) {
   const { t } = useTranslation();
   const [form, setForm] = useState(defaultForm);
   const [saving, setSaving] = useState(false);
@@ -145,6 +145,19 @@ export default function AddServerModal({ server, onSave, onClose }) {
                     onChange={set('username')}
                     required
                   />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">{t('分组')}</label>
+                  <input
+                    className="input"
+                    list="group-options"
+                    placeholder={t('默认（不填则不分组）')}
+                    value={form.group || ''}
+                    onChange={set('group')}
+                  />
+                  <datalist id="group-options">
+                    {allGroups.map(g => <option key={g} value={g} />)}
+                  </datalist>
                 </div>
               </div>
             </div>

@@ -1,10 +1,10 @@
 import { useState, useRef, useEffect, useMemo } from 'react';
 import { useTranslation } from '../i18n.js';
-import { Monitor, Pencil, Link, Trash2, X, SquarePen } from 'lucide-react';
+import { Monitor, Pencil, Link, Trash2, X, SquarePen, Folder, FolderOpen, ChevronUp, ChevronDown } from 'lucide-react';
 import { clampMenuPosition } from '../utils/menuPosition.js';
 
 const MENU_ESTIMATED_WIDTH = 196;
-const MENU_ESTIMATED_HEIGHT = 132;
+const MENU_ESTIMATED_HEIGHT = 160;
 
 const LATENCY_CLASS = (ms) => {
   if (ms === null || ms === undefined) return 'offline';
@@ -99,11 +99,18 @@ export default function ServerList({
   onConnect,
   onEdit,
   onDelete,
+  onMoveGroup,
+  addToast,
 }) {
   const { t } = useTranslation();
   const [menuServer, setMenuServer] = useState(null);
   const [menuPos, setMenuPos] = useState({ x: 0, y: 0 });
   const [hoveredId, setHoveredId] = useState(null);
+  const [groupMenu, setGroupMenu] = useState(false);
+  const [collapsedGroups, setCollapsedGroups] = useState(new Set());
+  const [groupOrder, setGroupOrder] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('serverGroupOrder') || '[]'); } catch { return []; }
+  });
   const menuRef = useRef(null);
 
   // 预计算已连接会话的 Map，将 O(n×m) 查找优化为 O(1)
@@ -156,6 +163,64 @@ export default function ServerList({
   const hasSession = (server) =>
     sessions.some((s) => s.serverId === server.id && s.status !== 'closed');
 
+  // 按分组组织服务器
+  const groupedServers = useMemo(() => {
+    const groups = {};
+    for (const s of servers) {
+      const g = s.group || '';
+      if (!groups[g]) groups[g] = [];
+      groups[g].push(s);
+    }
+    const names = Object.keys(groups);
+    // 按用户拖拽顺序排序，新分组追加到已排序列表末尾，未分组始终最后
+    const ordered = groupOrder.filter(g => g !== '' && groups[g]);
+    const unordered = names.filter(g => g !== '' && !groupOrder.includes(g)).sort((a, b) => a.localeCompare(b));
+    const result = [];
+    for (const g of [...ordered, ...unordered]) result.push([g, groups[g]]);
+    if (groups['']) result.push(['', groups['']]);
+    return result;
+  }, [servers, groupOrder]);
+
+  // 已有分组名称列表
+  const existingGroups = useMemo(() => {
+    const s = new Set();
+    for (const srv of servers) { if (srv.group) s.add(srv.group); }
+    return [...s].sort((a, b) => a.localeCompare(b));
+  }, [servers]);
+
+  const toggleGroup = (g) => {
+    setCollapsedGroups(prev => {
+      const next = new Set(prev);
+      if (next.has(g)) next.delete(g); else next.add(g);
+      return next;
+    });
+  };
+
+  const moveGroup = (g, dir) => {
+    const names = groupedServers.filter(([n]) => n !== '').map(([n]) => n);
+    const idx = names.indexOf(g);
+    const newIdx = idx + dir;
+    if (newIdx < 0 || newIdx >= names.length) return;
+    [names[idx], names[newIdx]] = [names[newIdx], names[idx]];
+    setGroupOrder(names);
+    localStorage.setItem('serverGroupOrder', JSON.stringify(names));
+    if (addToast) addToast(t('已移动'), 'success', 1500);
+  };
+
+  // 构建扁平 items：分组 header + server card 混合列表（hook 必须在 early return 之前）
+  const flatItems = useMemo(() => {
+    const items = [];
+    for (const [groupName, groupServers] of groupedServers) {
+      const collapsed = collapsedGroups.has(groupName);
+      const showHeader = groupedServers.length > 1 || groupName !== '';
+      if (showHeader) items.push({ type: 'header', groupName, count: groupServers.length, collapsed });
+      if (!collapsed) {
+        for (const server of groupServers) items.push({ type: 'server', server });
+      }
+    }
+    return items;
+  }, [groupedServers, collapsedGroups]);
+
   if (servers.length === 0) {
     return (
       <div className="empty-state" style={{ marginTop: 20 }}>
@@ -169,137 +234,136 @@ export default function ServerList({
     );
   }
 
+  // Server card 渲染
+  const renderServerCard = (server) => {
+    const ping = pings[server.id];
+    const latClass = ping ? LATENCY_CLASS(ping.latency) : 'offline';
+    const active = isActive(server);
+    const connected = hasSession(server);
+    const sessionForServer = connectedSessionMap.get(server.id);
+    const osInfo = getOSInfo(server.name, server.os, sessionForServer?.osInfo || null);
+    const isHovered = hoveredId === server.id;
+
+    return (
+      <div
+        key={server.id}
+        className={`server-card ${active ? 'active' : ''}`}
+        onClick={() => onConnect(server)}
+        onContextMenu={(e) => handleContextMenu(e, server)}
+        onMouseEnter={() => setHoveredId(server.id)}
+        onMouseLeave={() => setHoveredId(null)}
+        title={`${server.username}@${server.host}:${server.port || 22}`}
+        style={{
+          margin: 0,
+          background: active
+            ? 'var(--success-dim)'
+            : isHovered
+            ? 'var(--surface-hover)'
+            : 'var(--surface-sunken)',
+          backdropFilter: 'blur(12px)',
+          WebkitBackdropFilter: 'blur(12px)',
+          border: active
+            ? '1px solid var(--success-glow)'
+            : '1px solid var(--border)',
+          transition: 'all 0.18s ease',
+          boxShadow: active
+            ? '0 4px 20px rgba(var(--success-rgb), 0.15)'
+            : isHovered
+            ? 'var(--shadow-lg)'
+            : 'var(--shadow-md)',
+        }}
+      >
+        <div style={{
+          width: 42, height: 42, borderRadius: 12,
+          background: osInfo.bg, display: 'flex', alignItems: 'center', justifyContent: 'center',
+          fontSize: 22, flexShrink: 0,
+          boxShadow: osInfo.accentRgb ? `0 4px 12px rgba(${osInfo.accentRgb},0.2)` : 'none',
+        }}>
+          {osInfo.icon}
+        </div>
+        <div className="server-info" style={{ display: 'flex', flexDirection: 'column', gap: 3, flex: 1, minWidth: 0 }}>
+          <div className="server-name" style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 14, color: 'var(--text-primary)', fontWeight: 500 }}>
+            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {server.name || server.host}
+            </span>
+            {connected && (
+              <span style={{ fontSize: 8, color: 'var(--success)', fontFamily: 'var(--font-mono)', flexShrink: 0 }}>
+                ● {t('已连接')}
+              </span>
+            )}
+          </div>
+          <div className="server-host" style={{ color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {hideSensitive ? mask(`${server.username}@${server.host}`) : `${server.username}@${server.host}:${server.port || 22}`}
+          </div>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+          {ping?.online && ping?.latency !== undefined && ping?.latency !== null ? (
+            <>
+              <span style={{
+                fontSize: 11, fontFamily: 'var(--font-mono)',
+                color: latClass === 'good' ? 'var(--success)' : latClass === 'warn' ? 'var(--warning)' : 'var(--danger)',
+              }}>
+                {ping.latency === -1 ? t('<1毫秒') : `${ping.latency}${t('毫秒')}`}
+              </span>
+              <div style={{
+                width: 8, height: 8, borderRadius: '50%',
+                background: latClass === 'good' ? 'var(--success)' : latClass === 'warn' ? 'var(--warning)' : 'var(--danger)',
+                boxShadow: latClass === 'good' ? '0 0 8px var(--success-glow)' : latClass === 'warn' ? '0 0 8px var(--warning)' : '0 0 8px var(--danger-glow)',
+              }} />
+            </>
+          ) : (
+            ping !== undefined && !ping?.online ? (
+              <span style={{ fontSize: 14, color: 'var(--danger)', fontWeight: 'bold', lineHeight: 1 }} title={t('服务器离线或不可达')}><X size={14} /></span>
+            ) : null
+          )}
+          <button
+            onClick={(e) => { e.stopPropagation(); onEdit(server); }}
+            title={t('编辑服务器')}
+            style={{
+              background: 'none', border: 'none', cursor: 'pointer',
+              padding: '4px 6px', borderRadius: 6,
+              color: isHovered ? 'var(--text-primary)' : 'var(--text-muted)',
+              fontSize: 14, opacity: isHovered ? 1 : 0,
+              transition: 'all 0.15s', display: 'flex', alignItems: 'center',
+            }}
+          >
+            <SquarePen size={14} />
+          </button>
+        </div>
+      </div>
+    );
+  };
+
   return (
     <>
       {viewMode === 'grid' ? (
       <div className="server-grid">
-        {servers.map((server) => {
-          const ping = pings[server.id];
-          const latClass = ping ? LATENCY_CLASS(ping.latency) : 'offline';
-          const active = isActive(server);
-          const connected = hasSession(server);
-          // 优先用实际查询到的 osInfo
-          const sessionForServer = connectedSessionMap.get(server.id);
-          const osInfo = getOSInfo(server.name, server.os, sessionForServer?.osInfo || null);
-          const isHovered = hoveredId === server.id;
-
-          return (
+        {flatItems.map((item) =>
+          item.type === 'header' ? (
             <div
-              key={server.id}
-              className={`server-card ${active ? 'active' : ''}`}
-              onClick={() => onConnect(server)}
-              onContextMenu={(e) => handleContextMenu(e, server)}
-              onMouseEnter={() => setHoveredId(server.id)}
-              onMouseLeave={() => setHoveredId(null)}
-              title={`${server.username}@${server.host}:${server.port || 22}`}
+              key={`__group_${item.groupName || 'ungrouped'}`}
               style={{
-                margin: 0,
-                // 亚克力效果
-                background: active
-                  ? 'var(--success-dim)'
-                  : isHovered
-                  ? 'var(--surface-hover)'
-                  : 'var(--surface-sunken)',
-                backdropFilter: 'blur(12px)',
-                WebkitBackdropFilter: 'blur(12px)',
-                border: active
-                  ? '1px solid var(--success-glow)'
-                  : '1px solid var(--border)',
-                transition: 'all 0.18s ease',
-                boxShadow: active
-                  ? '0 4px 20px rgba(var(--success-rgb), 0.15)'
-                  : isHovered
-                  ? 'var(--shadow-lg)'
-                  : 'var(--shadow-md)',
+                gridColumn: '1 / -1',
+                display: 'flex', alignItems: 'center', gap: 6,
+                padding: '6px 0', marginBottom: item.collapsed ? 0 : 8,
+                color: 'var(--text-secondary)', fontSize: 13, fontWeight: 500,
+                userSelect: 'none',
               }}
             >
-              {/* OS 系统图标 */}
-              <div style={{
-                width: 42,
-                height: 42,
-                borderRadius: 12,
-                background: osInfo.bg,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                fontSize: 22,
-                flexShrink: 0,
-                boxShadow: osInfo.accentRgb ? `0 4px 12px rgba(${osInfo.accentRgb},0.2)` : 'none',
-              }}>
-                {osInfo.icon}
-              </div>
-
-              <div className="server-info" style={{ display: 'flex', flexDirection: 'column', gap: 3, flex: 1, minWidth: 0 }}>
-                <div className="server-name" style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 14, color: 'var(--text-primary)', fontWeight: 500 }}>
-                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {server.name || server.host}
-                  </span>
-                  {connected && (
-                    <span style={{ fontSize: 8, color: 'var(--success)', fontFamily: 'var(--font-mono)', flexShrink: 0 }}>
-                      ● {t('已连接')}
-                    </span>
-                  )}
-                </div>
-                <div className="server-host" style={{ color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {hideSensitive ? mask(`${server.username}@${server.host}`) : `${server.username}@${server.host}:${server.port || 22}`}
-                </div>
-              </div>
-
-              {/* 右侧：延迟 + 编辑按钮 */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
-                {ping?.online && ping?.latency !== undefined && ping?.latency !== null ? (
-                  <>
-                    <span style={{
-                      fontSize: 11,
-                      fontFamily: 'var(--font-mono)',
-                      color: latClass === 'good' ? 'var(--success)'
-                           : latClass === 'warn' ? 'var(--warning)'
-                           : 'var(--danger)',
-                    }}>
-                      {ping.latency === -1 ? t('<1毫秒') : `${ping.latency}${t('毫秒')}`}
-                    </span>
-                    <div style={{
-                      width: 8,
-                      height: 8,
-                      borderRadius: '50%',
-                      background: latClass === 'good' ? 'var(--success)'
-                                : latClass === 'warn' ? 'var(--warning)'
-                                : 'var(--danger)',
-                      boxShadow: latClass === 'good' ? '0 0 8px var(--success-glow)'
-                               : latClass === 'warn' ? '0 0 8px var(--warning)'
-                               : '0 0 8px var(--danger-glow)',
-                    }} />
-                  </>
-                ) : (
-                  ping !== undefined && !ping?.online ? (
-                    <span style={{ fontSize: 14, color: 'var(--danger)', fontWeight: 'bold', lineHeight: 1 }} title={t('服务器离线或不可达')}><X size={14} /></span>
-                  ) : null
-                )}
-
-                {/* 编辑按钮 */}
-                <button
-                  onClick={(e) => { e.stopPropagation(); onEdit(server); }}
-                  title={t('编辑服务器')}
-                  style={{
-                    background: 'none',
-                    border: 'none',
-                    cursor: 'pointer',
-                    padding: '4px 6px',
-                    borderRadius: 6,
-                    color: isHovered ? 'var(--text-primary)' : 'var(--text-muted)',
-                    fontSize: 14,
-                    opacity: isHovered ? 1 : 0,
-                    transition: 'all 0.15s',
-                    display: 'flex',
-                    alignItems: 'center',
-                  }}
-                >
-                  <SquarePen size={14} />
-                </button>
-              </div>
+              <span onClick={() => toggleGroup(item.groupName)} style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', flex: 1 }}>
+                {item.collapsed ? <Folder size={14} /> : <FolderOpen size={14} />}
+                <span>{item.groupName || t('未分组')}</span>
+                <span style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>({item.count})</span>
+              </span>
+              {item.groupName && (
+                <span style={{ display: 'flex', gap: 2 }}>
+                  <button onClick={(e) => { e.stopPropagation(); moveGroup(item.groupName, -1); }} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 2, color: 'var(--text-tertiary)', display: 'flex' }} title={t('上移')}><ChevronUp size={13} /></button>
+                  <button onClick={(e) => { e.stopPropagation(); moveGroup(item.groupName, 1); }} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 2, color: 'var(--text-tertiary)', display: 'flex' }} title={t('下移')}><ChevronDown size={13} /></button>
+                </span>
+              )}
             </div>
-          );
-        })}
+          ) : renderServerCard(item.server)
+        )}
       </div>
       ) : (
       <div className="server-table-container">
@@ -315,7 +379,36 @@ export default function ServerList({
             </tr>
           </thead>
           <tbody>
-            {servers.map((server) => {
+            {flatItems.map((item) => {
+              if (item.type === 'header') {
+                return (
+                  <tr key={`__group_${item.groupName || 'ungrouped'}`}>
+                    <td
+                      colSpan={6}
+                      style={{
+                        padding: '6px 8px',
+                        color: 'var(--text-secondary)', fontSize: 13, fontWeight: 500,
+                        userSelect: 'none', background: 'var(--surface-sunken)',
+                      }}
+                    >
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, width: '100%' }}>
+                        <span onClick={() => toggleGroup(item.groupName)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, cursor: 'pointer', flex: 1 }}>
+                          {item.collapsed ? <Folder size={13} /> : <FolderOpen size={13} />}
+                          {item.groupName || t('未分组')}
+                          <span style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>({item.count})</span>
+                        </span>
+                        {item.groupName && (
+                          <span style={{ display: 'flex', gap: 2 }}>
+                            <button onClick={(e) => { e.stopPropagation(); moveGroup(item.groupName, -1); }} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 2, color: 'var(--text-tertiary)', display: 'flex' }} title={t('上移')}><ChevronUp size={12} /></button>
+                            <button onClick={(e) => { e.stopPropagation(); moveGroup(item.groupName, 1); }} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 2, color: 'var(--text-tertiary)', display: 'flex' }} title={t('下移')}><ChevronDown size={12} /></button>
+                          </span>
+                        )}
+                      </span>
+                    </td>
+                  </tr>
+                );
+              }
+              const server = item.server;
               const ping = pings[server.id];
               const latClass = ping ? LATENCY_CLASS(ping.latency) : 'offline';
               const active = isActive(server);
@@ -403,6 +496,40 @@ export default function ServerList({
           >
             <SquarePen size={14} style={{ marginRight: 8 }} /> {t('编辑配置')}
           </div>
+          {onMoveGroup && (
+            <div
+              className="context-menu-item"
+              onClick={() => { setGroupMenu(!groupMenu); }}
+              style={{ position: 'relative' }}
+            >
+              <Folder size={14} style={{ marginRight: 8 }} /> {t('移动到分组')}
+              {groupMenu && (
+                <div
+                  className="context-menu"
+                  style={{ position: 'absolute', left: '100%', top: 0 }}
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  {existingGroups.filter(g => g !== (menuServer.group || '')).map(g => (
+                    <div
+                      key={g}
+                      className="context-menu-item"
+                      onClick={() => { onMoveGroup(menuServer.id, g); setMenuServer(null); setGroupMenu(false); }}
+                    >
+                      <Folder size={13} style={{ marginRight: 8 }} /> {g}
+                    </div>
+                  ))}
+                  {menuServer.group && (
+                    <div
+                      className="context-menu-item"
+                      onClick={() => { onMoveGroup(menuServer.id, ''); setMenuServer(null); setGroupMenu(false); }}
+                    >
+                      <X size={13} style={{ marginRight: 8 }} /> {t('移出分组')}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
           <div className="context-menu-divider" />
           <div
             className="context-menu-item danger"
