@@ -439,12 +439,22 @@ func (c *ConfigManager) saveLastSyncTime(t int64) {
 
 // SetConnectionGroup 仅更新服务器的分组字段，不影响密码等敏感数据
 func (c *ConfigManager) SetConnectionGroup(id string, group string) error {
+	return c.updateConnectionField(id, func(conn *Connection) { conn.Group = group })
+}
+
+// SetConnectionOS 仅更新服务器的操作系统字段
+func (c *ConfigManager) SetConnectionOS(id string, os string) error {
+	return c.updateConnectionField(id, func(conn *Connection) { conn.Os = os })
+}
+
+// updateConnectionField 通用：按 ID 查找并更新单个字段
+func (c *ConfigManager) updateConnectionField(id string, apply func(*Connection)) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	conns := c.getConnectionsLocked()
 	for i, conn := range conns {
 		if conn.ID == id {
-			conns[i].Group = group
+			apply(&conns[i])
 			conns[i].LastModified = time.Now().UnixMilli()
 			if err := c.saveConnectionsFile(conns); err != nil {
 				return err

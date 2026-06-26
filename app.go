@@ -257,6 +257,11 @@ func (a *App) SetConnectionGroup(id string, group string) error {
 	return a.configManager.SetConnectionGroup(id, group)
 }
 
+// SetConnectionOS 仅更新服务器操作系统
+func (a *App) SetConnectionOS(id string, os string) error {
+	return a.configManager.SetConnectionOS(id, os)
+}
+
 // ConnectSSH establishes an SSH connection
 func (a *App) ConnectSSH(sessionId string, connId string) error {
 	conn, ok := a.configManager.GetConnectionByID(connId)

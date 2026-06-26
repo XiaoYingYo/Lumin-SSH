@@ -395,9 +395,8 @@ export default function App() {
             setServers(prevServers => {
               const currentServer = prevServers.find(s => s.id === serverId);
               if (currentServer && currentServer.os !== detectedOs) {
-                const updatedServer = { ...currentServer, os: detectedOs, ...extraServerFields };
-                AppGo.SaveConnection(updatedServer).catch(console.error);
-                return prevServers.map(s => s.id === updatedServer.id ? updatedServer : s);
+                AppGo.SetConnectionOS(serverId, detectedOs).catch(console.error);
+                setServers(prev => prev.map(s => s.id === serverId ? { ...s, os: detectedOs } : s));
               }
               return prevServers;
             });
