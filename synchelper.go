@@ -507,6 +507,12 @@ type providerEntry struct {
 // 启动时也会调用，确保多设备间数据一致。
 // 失败时最多重试 3 次（间隔 2s/4s/8s），仍失败则通过 Wails 事件通知前端。
 func (c *ConfigManager) AutoSync() {
+	// ponytail: 并发去重，避免多入口同时触发浪费网络资源
+	if !c.syncRunning.CompareAndSwap(false, true) {
+		return
+	}
+	defer c.syncRunning.Store(false)
+
 	providers := c.getSyncProviders()
 	const maxRetries = 3
 

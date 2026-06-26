@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"embed"
-	"os"
 	"sync"
 	"time"
 
@@ -54,9 +53,7 @@ func setupSystray(app *App) {
 		})
 
 		mQuit.Click(func() {
-			app.sshManager.DisconnectAll()
-			systray.Quit()
-			os.Exit(0)
+			app.DoQuit()
 		})
 	})
 }

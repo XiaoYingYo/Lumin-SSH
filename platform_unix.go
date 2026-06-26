@@ -15,6 +15,9 @@ import (
 //go:embed build/windows/icon.ico
 var icon []byte
 
+// singletonLock holds the lock file descriptor to prevent GC from closing it
+var singletonLock *os.File
+
 // findAndShowWindow 在非 Windows 平台上为空实现
 func findAndShowWindow() {}
 
@@ -31,6 +34,7 @@ func ensureSingleInstance() {
 		findAndShowWindow()
 		os.Exit(0)
 	}
+	singletonLock = f
 }
 
 // applyPlatformOptions 在非 Windows 平台上无额外选项

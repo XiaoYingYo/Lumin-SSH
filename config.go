@@ -16,6 +16,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/studio-b12/gowebdav"
@@ -62,6 +63,7 @@ type ConfigManager struct {
 	mu             sync.RWMutex
 	connCache      []Connection    // 缓存连接列表
 	connCacheDirty bool            // 缓存是否需要刷新
+	syncRunning    atomic.Bool     // AutoSync 并发去重
 	wailsCtx       context.Context // 用于向 Wails 前端发送事件
 }
 

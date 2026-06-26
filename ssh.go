@@ -12,6 +12,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 	"sort"
 	"strconv"
 	"strings"
@@ -250,7 +251,7 @@ func (m *SSHManager) Connect(sessionId string, conn Connection) error {
 				errStr := dialErr.Error()
 				if strings.Contains(errStr, "connection refused") {
 					if m.ctx != nil {
-						runtime.EventsEmit(m.ctx, "ssh-auth-failed", map[string]interface{}{
+						runtime.EventsEmit(m.ctx, "ssh-connection-failed", map[string]interface{}{
 							"sessionId": sessionId,
 							"connId":    conn.ID,
 							"host":      conn.Host,
@@ -259,7 +260,7 @@ func (m *SSHManager) Connect(sessionId string, conn Connection) error {
 							"error":     errStr,
 						})
 					}
-					return fmt.Errorf("认证失败")
+					return fmt.Errorf("连接被拒绝")
 				}
 				// 瞬态错误继续重试
 				if attempt < maxRetries && isTransientNetError(dialErr) {
@@ -619,7 +620,7 @@ func (m *SSHManager) getSFTPClient(sessionId string) (*sftp.Client, error) {
 func (m *SSHManager) Disconnect(sessionId string) {
 	defer func() {
 		if r := recover(); r != nil {
-			log.Printf("[Disconnect] panic recovered: %v", r)
+			log.Printf("[Disconnect] panic recovered: %v\n%s", r, debug.Stack())
 		}
 	}()
 
@@ -889,13 +890,16 @@ func (m *SSHManager) GetTerminalCwd(sessionId string) (string, error) {
 	}
 
 	localAddr := client.LocalAddr().String()
-	parts := strings.Split(localAddr, ":")
-	if len(parts) < 2 {
+	_, portStr, err := net.SplitHostPort(localAddr)
+	if err != nil || portStr == "" {
 		return "", fmt.Errorf("invalid local address format")
 	}
-	port := parts[len(parts)-1]
+	// 校验端口为纯数字，防止命令注入
+	if _, err := strconv.Atoi(portStr); err != nil {
+		return "", fmt.Errorf("invalid local port: %s", portStr)
+	}
 
-	cmd := fmt.Sprintf(`PORT=%s; SSHD_PID=$(ss -ntp 2>/dev/null | grep ":$PORT " | grep -oE 'pid=[0-9]+' | cut -d= -f2 | head -n1); [ -z "$SSHD_PID" ] && SSHD_PID=$(netstat -ntp 2>/dev/null | grep ":$PORT " | grep -oE '[0-9]+/sshd' | cut -d/ -f1 | head -n1); if [ -n "$SSHD_PID" ]; then SHELL_PID=$(pgrep -P $SSHD_PID | head -n1); fi; [ -z "$SHELL_PID" ] && SHELL_PID=$(pgrep -u $USER -f "sh|bash|zsh" | tail -n1); if [ -n "$SHELL_PID" ]; then readlink /proc/$SHELL_PID/cwd 2>/dev/null || echo "/"; else echo "/"; fi`, port)
+	cmd := fmt.Sprintf(`PORT=%s; SSHD_PID=$(ss -ntp 2>/dev/null | grep ":$PORT " | grep -oE 'pid=[0-9]+' | cut -d= -f2 | head -n1); [ -z "$SSHD_PID" ] && SSHD_PID=$(netstat -ntp 2>/dev/null | grep ":$PORT " | grep -oE '[0-9]+/sshd' | cut -d/ -f1 | head -n1); if [ -n "$SSHD_PID" ]; then SHELL_PID=$(pgrep -P $SSHD_PID | head -n1); fi; [ -z "$SHELL_PID" ] && SHELL_PID=$(pgrep -u $USER -f "sh|bash|zsh" | tail -n1); if [ -n "$SHELL_PID" ]; then readlink /proc/$SHELL_PID/cwd 2>/dev/null || echo "/"; else echo "/"; fi`, portStr)
 
 	out, err := m.executeCmdWithClient(client, cmd)
 	if err != nil {
@@ -1084,6 +1088,7 @@ func (m *SSHManager) GetSystemInfo(sessionId string) (result map[string]interfac
 	defer func() {
 		if r := recover(); r != nil {
 			err = fmt.Errorf("panic in GetSystemInfo: %v", r)
+			log.Printf("[GetSystemInfo] panic: %v\n%s", r, debug.Stack())
 			result = nil
 		}
 	}()
@@ -1470,6 +1475,7 @@ func (m *SSHManager) GetServerStaticInfo(sessionId string) (result map[string]in
 	defer func() {
 		if r := recover(); r != nil {
 			err = fmt.Errorf("panic in GetServerStaticInfo: %v", r)
+			log.Printf("[GetServerStaticInfo] panic: %v\n%s", r, debug.Stack())
 			result = nil
 		}
 	}()
@@ -1662,10 +1668,11 @@ func (m *SSHManager) WriteFile(sessionId string, path string, content string) er
 	if err != nil {
 		return err
 	}
-	defer f.Close()
-
-	_, err = f.Write([]byte(content))
-	return err
+	_, writeErr := f.Write([]byte(content))
+	if closeErr := f.Close(); writeErr == nil {
+		return closeErr
+	}
+	return writeErr
 }
 
 // isDangerousPath 检查是否为危险路径（根目录、家目录等），防止误删
