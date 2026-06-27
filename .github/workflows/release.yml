@@ -45,10 +45,10 @@ jobs:
           export PATH=$HOME/go/bin:$PATH
           VERSION=${GITHUB_REF_NAME#v}
           wails build -clean -tags webkit2_41 -o Lumin
-          cp build/bin/Lumin "build/Lumin-v${VERSION}-linux-amd64"
-          sha256sum "build/Lumin-v${VERSION}-linux-amd64" > "build/Lumin-v${VERSION}-linux-amd64.sha256"
-          echo "binary=${{ github.workspace }}/build/Lumin-v${VERSION}-linux-amd64" >> $GITHUB_ENV
-          echo "binary_sha=${{ github.workspace }}/build/Lumin-v${VERSION}-linux-amd64.sha256" >> $GITHUB_ENV
+          cp build/bin/Lumin "build/Lumin-V${VERSION}-linux-amd64"
+          sha256sum "build/Lumin-V${VERSION}-linux-amd64" > "build/Lumin-V${VERSION}-linux-amd64.sha256"
+          echo "binary=${{ github.workspace }}/build/Lumin-V${VERSION}-linux-amd64" >> $GITHUB_ENV
+          echo "binary_sha=${{ github.workspace }}/build/Lumin-V${VERSION}-linux-amd64.sha256" >> $GITHUB_ENV
 
       - name: Package .deb & .rpm
         run: |
@@ -58,18 +58,18 @@ jobs:
           sudo chown root:root build/deb/usr/bin/lumin
           # 更新 DEBIAN/control 中的版本号
           sed -i "s/^Version:.*/Version: ${VERSION}/" build/deb/DEBIAN/control
-          sudo dpkg-deb --root-owner-group --build build/deb build/lumin_${VERSION}_amd64.deb
-          sha256sum build/lumin_${VERSION}_amd64.deb > build/lumin_${VERSION}_amd64.deb.sha256
-          echo "deb=${{ github.workspace }}/build/lumin_${VERSION}_amd64.deb" >> $GITHUB_ENV
-          echo "deb_sha=${{ github.workspace }}/build/lumin_${VERSION}_amd64.deb.sha256" >> $GITHUB_ENV
+          sudo dpkg-deb --root-owner-group --build build/deb "build/lumin_V${VERSION}_amd64.deb"
+          sha256sum "build/lumin_V${VERSION}_amd64.deb" > "build/lumin_V${VERSION}_amd64.deb.sha256"
+          echo "deb=${{ github.workspace }}/build/lumin_V${VERSION}_amd64.deb" >> $GITHUB_ENV
+          echo "deb_sha=${{ github.workspace }}/build/lumin_V${VERSION}_amd64.deb.sha256" >> $GITHUB_ENV
           # Convert .deb to .rpm via alien
-          sudo alien -r build/lumin_${VERSION}_amd64.deb --scripts || echo "alien_rpm_failed=true" >> $GITHUB_ENV
+          sudo alien -r "build/lumin_V${VERSION}_amd64.deb" --scripts || echo "alien_rpm_failed=true" >> $GITHUB_ENV
           RPM_FILE=$(find . -name "*.rpm" 2>/dev/null | head -1)
           if [ -n "$RPM_FILE" ]; then
             mv "$RPM_FILE" build/
             RPM_BASENAME=$(basename "$RPM_FILE")
-            # 去掉 alien 自动递增的 release 编号
-            RPM_BASENAME_CLEAN=$(echo "$RPM_BASENAME" | sed 's/-[0-9]\+\.x86_64/.x86_64/')
+            # 统一命名：加入 V 前缀
+            RPM_BASENAME_CLEAN=$(echo "$RPM_BASENAME" | sed "s/lumin-[0-9.]\+\(.*\)\.rpm/lumin-V${VERSION}\1.rpm/")
             if [ "$RPM_BASENAME" != "$RPM_BASENAME_CLEAN" ] && [ -f "build/$RPM_BASENAME" ]; then
               mv "build/$RPM_BASENAME" "build/$RPM_BASENAME_CLEAN"
               RPM_BASENAME="$RPM_BASENAME_CLEAN"
@@ -121,10 +121,10 @@ jobs:
         run: |
           VERSION=${GITHUB_REF_NAME#v}
           cp -r build/bin/Lumin.app build/Lumin.app
-          hdiutil create -volname "Lumin" -srcfolder build/Lumin.app -ov -format UDZO build/Lumin-${VERSION}.dmg
-          sha256sum build/Lumin-${VERSION}.dmg > build/Lumin-${VERSION}.dmg.sha256
-          echo "app_dmg=${{ github.workspace }}/build/Lumin-${VERSION}.dmg" >> $GITHUB_ENV
-          echo "app_sha=${{ github.workspace }}/build/Lumin-${VERSION}.dmg.sha256" >> $GITHUB_ENV
+          hdiutil create -volname "Lumin" -srcfolder build/Lumin.app -ov -format UDZO "build/Lumin-V${VERSION}.dmg"
+          sha256sum "build/Lumin-V${VERSION}.dmg" > "build/Lumin-V${VERSION}.dmg.sha256"
+          echo "app_dmg=${{ github.workspace }}/build/Lumin-V${VERSION}.dmg" >> $GITHUB_ENV
+          echo "app_sha=${{ github.workspace }}/build/Lumin-V${VERSION}.dmg.sha256" >> $GITHUB_ENV
 
       - name: Upload to Release
         uses: softprops/action-gh-release@v2
@@ -167,22 +167,22 @@ jobs:
         shell: pwsh
         run: |
           $VERSION = "$env:GITHUB_REF_NAME" -replace "^v", ""
-          Copy-Item build/bin/Lumin.exe "build/Lumin-$VERSION-portable.exe"
-          $hash = (CertUtil -hashfile "build/Lumin-$VERSION-portable.exe" SHA256)[1] -replace " ",""
-          Set-Content -Path "build/Lumin-$VERSION-portable.exe.sha256" -Value "$hash  Lumin-$VERSION-portable.exe"
-          echo "portable=${{ github.workspace }}\build\Lumin-$VERSION-portable.exe" >> $env:GITHUB_ENV
-          echo "portable_sha=${{ github.workspace }}\build\Lumin-$VERSION-portable.exe.sha256" >> $env:GITHUB_ENV
+          Copy-Item build/bin/Lumin.exe "build/Lumin-V$VERSION-portable.exe"
+          $hash = (CertUtil -hashfile "build/Lumin-V$VERSION-portable.exe" SHA256)[1] -replace " ",""
+          Set-Content -Path "build/Lumin-V$VERSION-portable.exe.sha256" -Value "$hash  Lumin-V$VERSION-portable.exe"
+          echo "portable=${{ github.workspace }}\build\Lumin-V$VERSION-portable.exe" >> $env:GITHUB_ENV
+          echo "portable_sha=${{ github.workspace }}\build\Lumin-V$VERSION-portable.exe.sha256" >> $env:GITHUB_ENV
 
       - name: Copy NSIS installer
         shell: pwsh
         run: |
           $VERSION = "$env:GITHUB_REF_NAME" -replace "^v", ""
           $installer = Get-Item "build/bin/*-installer.exe"
-          Copy-Item $installer.FullName "build/Lumin-$VERSION-amd64-installer.exe"
-          $hash = (CertUtil -hashfile "build/Lumin-$VERSION-amd64-installer.exe" SHA256)[1] -replace " ",""
-          Set-Content -Path "build/Lumin-$VERSION-amd64-installer.exe.sha256" -Value "$hash  Lumin-$VERSION-amd64-installer.exe"
-          echo "installer=${{ github.workspace }}\build\Lumin-$VERSION-amd64-installer.exe" >> $env:GITHUB_ENV
-          echo "installer_sha=${{ github.workspace }}\build\Lumin-$VERSION-amd64-installer.exe.sha256" >> $env:GITHUB_ENV
+          Copy-Item $installer.FullName "build/Lumin-V$VERSION-amd64-installer.exe"
+          $hash = (CertUtil -hashfile "build/Lumin-V$VERSION-amd64-installer.exe" SHA256)[1] -replace " ",""
+          Set-Content -Path "build/Lumin-V$VERSION-amd64-installer.exe.sha256" -Value "$hash  Lumin-V$VERSION-amd64-installer.exe"
+          echo "installer=${{ github.workspace }}\build\Lumin-V$VERSION-amd64-installer.exe" >> $env:GITHUB_ENV
+          echo "installer_sha=${{ github.workspace }}\build\Lumin-V$VERSION-amd64-installer.exe.sha256" >> $env:GITHUB_ENV
 
       - name: Upload to Release
         uses: softprops/action-gh-release@v2
