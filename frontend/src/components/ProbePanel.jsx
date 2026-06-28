@@ -148,6 +148,8 @@ export default function ProbePanel({ sessionId, host, addToast, enabled, onEnabl
   const [enabling, setEnabling] = useState(false);
   const [hideIP, setHideIP] = useState(false);
   const [cpuExpanded, setCpuExpanded] = useState(false);
+  const [probeError, setProbeError] = useState(null);
+  const probeErrorCountRef = useRef(0);
   const staticInfoRef = useRef(null);
 
   // 切换服务器时立即清空旧数据和静态缓存
@@ -156,6 +158,8 @@ export default function ProbePanel({ sessionId, host, addToast, enabled, onEnabl
     staticInfoRef.current = null;
     setHist({ cpu: Array(30).fill(0), up: Array(30).fill(0), down: Array(30).fill(0) });
     setCpuExpanded(false);
+    setProbeError(null);
+    probeErrorCountRef.current = 0;
   }, [sessionId]);
 
   // 启用监控时获取一次静态信息（OS/时区/主机名/CPU 型号）
@@ -225,7 +229,14 @@ export default function ProbePanel({ sessionId, host, addToast, enabled, onEnabl
         up: [...prev.up, ni.netUp].slice(-30),
         down: [...prev.down, ni.netDown].slice(-30),
       }));
-    } catch (_) {}
+      probeErrorCountRef.current = 0;
+      setProbeError(false);
+    } catch (_) {
+      probeErrorCountRef.current += 1;
+      if (probeErrorCountRef.current >= 3) {
+        setProbeError(true);
+      }
+    }
   }, [sessionId, enabled]);
 
   const probeTimerRef = useRef(null);
@@ -321,8 +332,21 @@ export default function ProbePanel({ sessionId, host, addToast, enabled, onEnabl
     );
   }
 
-  // ── Loading state ──────────────────────────────────────────────────────
+  // ── Loading / Error state ─────────────────────────────────────────────
   if (!info) {
+    if (probeError) {
+      return (
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', gap: 12, padding: 20 }}>
+          <div style={{ width: 48, height: 48, borderRadius: '50%', background: 'rgba(var(--danger-rgb,255,77,77),0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--danger)', fontSize: 22 }}>✕</div>
+          <div style={{ fontSize: 13, color: 'var(--text-primary)', fontWeight: 600, textAlign: 'center' }}>{t('写入失败，请重试')}</div>
+          <div style={{ fontSize: 11.5, color: 'var(--text-tertiary)', textAlign: 'center', maxWidth: 200, lineHeight: 1.5 }}>{t('监控脚本写入服务器失败，请检查连接或权限')}</div>
+          <button onClick={() => { setProbeError(false); probeErrorCountRef.current = 0; }}
+            style={{ marginTop: 4, padding: '7px 20px', borderRadius: 7, border: '1px solid rgba(var(--accent-rgb),0.5)', background: 'rgba(var(--accent-rgb),0.12)', color: 'var(--success)', fontSize: 12.5, fontWeight: 700, cursor: 'pointer' }}>
+            {t('重试')}
+          </button>
+        </div>
+      );
+    }
     return (
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', gap: 10, color: 'var(--success)', opacity: 0.5 }}>
         <div style={{ fontSize: 22, animation: 'spin 1.2s linear infinite' }}>⟳</div>
