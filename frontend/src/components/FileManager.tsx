@@ -51,15 +51,7 @@ export default function FileManager({ sessionId, sessionGroupId = sessionId, add
     fileManagerRootRef, isDualPaneLayout, contextMenu, setContextMenu, currentPath,
     handleDragEnter, handleDragOver, handleDragLeave, handleDrop,
     fileListColumnWidths, uploadInputRef, uploadFolderInputRef, handleSelectedFiles,
-    isActive: fmIsActive, uploadPanelState, workbenchState,
   } = fm;
-  const uploadPanelTarget = fmIsActive && uploadPanelState.uploadOpen
-    ? (
-      workbenchState.editorSplitOpen
-        ? document.getElementById(`workbench-upload-panel-${sessionGroupId}`)
-        : document.getElementById('editor-split-host')
-    )
-    : null;
 
   return (
     <div
@@ -114,7 +106,7 @@ export default function FileManager({ sessionId, sessionGroupId = sessionId, add
       {renderFileManagerToolbar(fm)}
       {renderFileManagerTabBar(fm)}
       {renderFileManagerContent(fm)}
-      {renderFileManagerOverlays(fm, uploadPanelTarget)}
+      {renderFileManagerOverlays(fm)}
     </div>
   );
 }

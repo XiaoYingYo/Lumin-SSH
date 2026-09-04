@@ -19,8 +19,6 @@ export interface FileEditorProps {
   splitPosition?: 'left' | 'right' | 'bottom';
   onSplitPositionChange?: (position: string) => void;
   isActive?: boolean;
-  workbenchSessionId?: string;
-  workbenchOwnerId?: string;
   onOpenSystemEditor?: (file: FileEditorFile, content: string) => void;
   onOpenWithEditor?: (file: FileEditorFile, content: string, chooseApp: boolean) => void;
   externalOpening?: boolean;

@@ -1,7 +1,7 @@
 import { createPortal } from 'react-dom';
 import CodeMirror from '@uiw/react-codemirror';
 import { oneDark } from '@codemirror/theme-one-dark';
-import { SquarePen, Upload } from 'lucide-react';
+import { SquarePen } from 'lucide-react';
 import { Z } from '../constants/zIndex.ts';
 import { useOverlayScrollLock } from '../hooks/useOverlayScrollLock.ts';
 import { formatShortcut } from '../utils/platform.ts';
@@ -28,7 +28,6 @@ export default function FileEditor(props: FileEditorProps) {
     splitPosition = 'right',
     onSplitPositionChange,
     isActive = true,
-    workbenchSessionId = '',
     onOpenSystemEditor,
     onOpenWithEditor,
     externalOpening = false,
@@ -44,8 +43,6 @@ export default function FileEditor(props: FileEditorProps) {
     setPreferredExternalApp,
     contextMenu,
     setContextMenu,
-    showWorkbenchTabs,
-    activeWorkbenchTab,
     activeFile,
     currentContent,
     isModified,
@@ -62,7 +59,6 @@ export default function FileEditor(props: FileEditorProps) {
     lang,
     extensions,
     ext,
-    handleWorkbenchTabChange,
   } = useFileEditor(props);
 
   useOverlayScrollLock(mode === 'popup' && isActive && !minimized);
@@ -199,42 +195,10 @@ export default function FileEditor(props: FileEditorProps) {
     if (!isActive) return null;
     const host = document.getElementById('editor-split-host');
     if (!host) return null;
+    // 分栏 host 只放编辑器；上传队列为独立浮动面板，不再以工作台标签混入
     return createPortal(
       <div className="w-full h-full flex flex-col" onContextMenu={handleContextMenu}>
-        {showWorkbenchTabs && (
-          <div className="terminal-sub-tab-bar">
-            <button
-              type="button"
-              className={`terminal-create-btn inline-flex items-center justify-center gap-1 whitespace-nowrap leading-none font-medium text-xs [transition:color_0.08s_ease,background-color_0.08s_ease,border-color_0.08s_ease,opacity_0.08s_ease] terminal-tool-btn ${activeWorkbenchTab === 'editor' ? 'active' : ''}`}
-              onClick={() => handleWorkbenchTabChange('editor')}
-            >
-              <SquarePen size={14} />
-              {t('编辑器')}
-            </button>
-            <button
-              type="button"
-              className={`terminal-create-btn inline-flex items-center justify-center gap-1 whitespace-nowrap leading-none font-medium text-xs [transition:color_0.08s_ease,background-color_0.08s_ease,border-color_0.08s_ease,opacity_0.08s_ease] terminal-tool-btn ${activeWorkbenchTab === 'upload' ? 'active' : ''}`}
-              onClick={() => handleWorkbenchTabChange('upload')}
-            >
-              <Upload size={14} />
-              {t('上传队列')}
-            </button>
-          </div>
-        )}
-        <div
-          id={`workbench-editor-panel-${workbenchSessionId}`}
-          className="flex flex-col flex-1 min-h-0"
-          style={{ display: activeWorkbenchTab === 'editor' ? 'flex' : 'none' }}
-        >
-          {editorContent}
-        </div>
-        {showWorkbenchTabs && (
-          <div
-            id={`workbench-upload-panel-${workbenchSessionId}`}
-            className="flex flex-col flex-1 min-h-0"
-            style={{ display: activeWorkbenchTab === 'upload' ? 'flex' : 'none' }}
-          />
-        )}
+        {editorContent}
       </div>,
       host,
     );

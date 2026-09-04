@@ -4,13 +4,6 @@ import { EditorState, EditorView, type Extension } from '@uiw/react-codemirror';
 import { useTranslation } from '../../i18n.ts';
 import { useEditorWordWrap } from '../../utils/editorWordWrap.ts';
 import {
-  getSessionUploadPanelState,
-  getSessionWorkbenchState,
-  setSessionWorkbenchState,
-  subscribeSessionUploadPanelState,
-  subscribeSessionWorkbenchState,
-} from '../../utils/fileWorkbench.ts';
-import {
   editorActiveLineTheme,
   getLanguage,
   gotoLineKeymap,
@@ -30,8 +23,6 @@ export function useFileEditor(props: FileEditorProps) {
     mode = 'modal',
     splitPosition = 'right',
     isActive = true,
-    workbenchSessionId = '',
-    workbenchOwnerId = '',
   } = props;
 
   const { t, lang: i18nLang } = useTranslation();
@@ -52,17 +43,15 @@ export function useFileEditor(props: FileEditorProps) {
     };
   }, []);
 
+  // 打开文件时自动恢复：仅在激活文件变化时恢复（依赖里不含 minimized，
+  // 否则点击最小化的瞬间就会立刻被恢复，导致无法最小化）
   useEffect(() => {
     if (minimized && activePath) setMinimized(false);
-  }, [minimized, activePath]);
+  }, [activePath]);
 
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; hasSelection: boolean } | null>(null);
-  const [workbenchState, setWorkbenchStateState] = useState(() => getSessionWorkbenchState(workbenchSessionId));
-  const [uploadPanelState, setUploadPanelState] = useState(() => getSessionUploadPanelState(workbenchSessionId, workbenchOwnerId));
 
   const activeFile = files.find((f) => f.path === activePath) || files[0];
-  const showWorkbenchTabs = !!uploadPanelState.uploadOpen;
-  const activeWorkbenchTab = showWorkbenchTabs && workbenchState.activeTab === 'upload' ? 'upload' : 'editor';
 
   const [popupPos, setPopupPos] = useState<{ x: number; y: number; w: number; h: number }>(() => {
     const saved = localStorage.getItem('fileEditorPopupPos');
@@ -84,52 +73,6 @@ export function useFileEditor(props: FileEditorProps) {
   useEffect(() => {
     popupPosRef.current = popupPos;
   }, [popupPos]);
-
-  useEffect(() => {
-    if (!workbenchSessionId) return undefined;
-    return subscribeSessionWorkbenchState(workbenchSessionId, setWorkbenchStateState);
-  }, [workbenchSessionId]);
-
-  useEffect(() => {
-    if (!workbenchSessionId || !workbenchOwnerId) return undefined;
-    return subscribeSessionUploadPanelState(workbenchSessionId, workbenchOwnerId, setUploadPanelState);
-  }, [workbenchOwnerId, workbenchSessionId]);
-
-  useEffect(() => {
-    if (!workbenchSessionId || !workbenchOwnerId) return undefined;
-    if (mode === 'split' && isActive) {
-      const current = getSessionWorkbenchState(workbenchSessionId);
-      setSessionWorkbenchState(workbenchSessionId, {
-        editorSplitOpen: true,
-        editorOwnerId: workbenchOwnerId,
-        activeTab: getSessionUploadPanelState(workbenchSessionId, workbenchOwnerId).uploadOpen ? current.activeTab || 'upload' : 'editor',
-      });
-      return () => {
-        const latest = getSessionWorkbenchState(workbenchSessionId);
-        if (latest.editorOwnerId === workbenchOwnerId) {
-          setSessionWorkbenchState(workbenchSessionId, {
-            editorSplitOpen: false,
-            editorOwnerId: '',
-            activeTab: getSessionUploadPanelState(workbenchSessionId, workbenchOwnerId).uploadOpen ? latest.activeTab || 'upload' : 'editor',
-          });
-        }
-      };
-    }
-    const latest = getSessionWorkbenchState(workbenchSessionId);
-    if (latest.editorOwnerId === workbenchOwnerId && latest.editorSplitOpen) {
-      setSessionWorkbenchState(workbenchSessionId, {
-        editorSplitOpen: false,
-        editorOwnerId: '',
-        activeTab: getSessionUploadPanelState(workbenchSessionId, workbenchOwnerId).uploadOpen ? latest.activeTab || 'upload' : 'editor',
-      });
-    }
-    return undefined;
-  }, [mode, isActive, workbenchOwnerId, workbenchSessionId]);
-
-  const handleWorkbenchTabChange = useCallback((tab: string) => {
-    if (!workbenchSessionId) return;
-    setSessionWorkbenchState(workbenchSessionId, { activeTab: tab });
-  }, [workbenchSessionId]);
 
   const currentContent = activeFile
     ? (editedContents[activeFile.path] !== undefined ? editedContents[activeFile.path] : activeFile.content)
@@ -374,8 +317,10 @@ export function useFileEditor(props: FileEditorProps) {
       host.style.order = splitPosition === 'left' ? '0' : '2';
     }
 
+    // editor-split-host 由本组件独占：卸载/失活时无条件归零（传输队列为
+    // 独立浮动面板，不再依赖本 host），避免切终端时 host 宽度残留导致
+    // 编辑器“不见了”或切回后无法恢复
     return () => {
-      if (getSessionUploadPanelState(workbenchSessionId, workbenchOwnerId).uploadOpen) return;
       const nextResizer = document.getElementById('editor-split-resizer');
       const nextMainContent = document.getElementById('editor-main-content');
       if (nextResizer) nextResizer.style.display = 'none';
@@ -392,7 +337,7 @@ export function useFileEditor(props: FileEditorProps) {
       host.style.borderTop = 'none';
       host.style.order = '2';
     };
-  }, [mode, splitPosition, isActive, workbenchSessionId, workbenchOwnerId]);
+  }, [mode, splitPosition, isActive]);
 
   return {
     t,
@@ -404,8 +349,6 @@ export function useFileEditor(props: FileEditorProps) {
     setPreferredExternalApp,
     contextMenu,
     setContextMenu,
-    showWorkbenchTabs,
-    activeWorkbenchTab,
     activeFile,
     currentContent,
     isModified,
@@ -422,6 +365,5 @@ export function useFileEditor(props: FileEditorProps) {
     lang,
     extensions,
     ext,
-    handleWorkbenchTabChange,
   };
 }

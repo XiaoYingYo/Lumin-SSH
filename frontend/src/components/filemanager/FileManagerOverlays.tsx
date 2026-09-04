@@ -12,9 +12,9 @@ const FileEditor = React.lazy(() => import('../FileEditor.tsx'));
 
 // 覆盖层：拖拽遮罩与拖拽提示、右键菜单门户、传输队列面板门户、
 // 文件编辑器（modal/popup/split）、chmod 对话框与操作进度遮罩
-export function renderFileManagerOverlays(fm: FileManagerController, uploadPanelTarget: Element | null) {
+export function renderFileManagerOverlays(fm: FileManagerController) {
   const {
-    t, sessionId, sessionGroupId, isActive, addToast,
+    t, isActive, addToast,
     isDragOver, fileManagerDragTip,
     contextMenu, clipboard, isDualPaneLayout, activePaneKey,
     fileManagerWorkspace, hideFileManagerTabCloseButton,
@@ -28,7 +28,7 @@ export function renderFileManagerOverlays(fm: FileManagerController, uploadPanel
     operationInProgressRef, handleDeleteItems, handleDeleteTabDirectory,
     handleDelete, handleDeleteShell, handleMkdir, handleNewFile,
     handleCompress, handleUncompress,
-    uploadQueueItems, uploadPanelClosing, setUploadPanelOpen,
+    uploadQueueItems, uploadPanelState, uploadPanelClosing, setUploadPanelOpen,
     isUploadAbortable, abortUploadItem, abortUploadItems, removeUploadItems,
     openEditFiles, activeEditPath, handleSaveFile, closeEditFile, closeAllEditFiles,
     activateEditFile, editorMode, handleEditorModeChange,
@@ -235,17 +235,23 @@ export function renderFileManagerOverlays(fm: FileManagerController, uploadPanel
         document.body
       )}
 
-      {uploadPanelTarget && createPortal(
-        <FileUploadQueuePanel
-          items={uploadQueueItems}
-          closing={uploadPanelClosing}
-          onClose={() => setUploadPanelOpen(false)}
-          isAbortable={isUploadAbortable}
-          onAbortItem={(item) => { void abortUploadItem(item, t('已终止')); }}
-          onAbortItems={(items) => abortUploadItems(items, t('已终止'))}
-          onRemoveItems={removeUploadItems}
-        />,
-        uploadPanelTarget
+      {/* 传输队列独立浮动面板（右下角固定定位，不依赖编辑器分栏 host） */}
+      {(uploadPanelState.uploadOpen || uploadPanelClosing) && typeof document !== 'undefined' && createPortal(
+        <div
+          className="fixed bottom-3 right-3 flex flex-col overflow-hidden rounded-[var(--radius-md)] border border-line bg-raised shadow-md"
+          style={{ width: 420, maxWidth: 'calc(100vw - 24px)', height: 'clamp(240px, 60vh, 560px)', zIndex: Z.FLOATING_EDITOR }}
+        >
+          <FileUploadQueuePanel
+            items={uploadQueueItems}
+            closing={uploadPanelClosing}
+            onClose={() => setUploadPanelOpen(false)}
+            isAbortable={isUploadAbortable}
+            onAbortItem={(item) => { void abortUploadItem(item, t('已终止')); }}
+            onAbortItems={(items) => abortUploadItems(items, t('已终止'))}
+            onRemoveItems={removeUploadItems}
+          />
+        </div>,
+        document.body
       )}
 
       {/* File Editor (modal/popup/split 均由 FileEditor 内部决定渲染方式) */}
@@ -263,8 +269,6 @@ export function renderFileManagerOverlays(fm: FileManagerController, uploadPanel
             splitPosition={editorSplitPosition as 'bottom' | 'left' | 'right'}
             onSplitPositionChange={handleEditorSplitPositionChange}
             isActive={isActive}
-            workbenchSessionId={sessionGroupId}
-            workbenchOwnerId={sessionId}
             onOpenSystemEditor={handleOpenSystemEditor}
             onOpenWithEditor={handleOpenWithEditor}
             externalOpening={externalOpening}

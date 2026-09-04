@@ -1,4 +1,5 @@
 import { useCallback } from 'react';
+import type React from 'react';
 import { Monitor } from 'lucide-react';
 import { Z } from '../constants/zIndex.ts';
 import WorkspaceDashboardSection from './workspace/WorkspaceDashboardSection.tsx';
@@ -12,6 +13,38 @@ import type {
 } from './workspace/workspaceTypes.ts';
 
 export type { SessionWorkspaceProps };
+
+// 分栏拖拽条通用逻辑：参数化目标 host，供编辑器分栏与上传队列 dock 复用
+function startHostResizeDrag(e: React.MouseEvent<HTMLDivElement>, hostId: string) {
+  const host = document.getElementById(hostId);
+  if (!host) return;
+  const container = document.getElementById('session-editor-container');
+  if (!container) return;
+  const rect = container.getBoundingClientRect();
+  const startX = e.clientX;
+  const startW = host.getBoundingClientRect().width;
+  const splitPos = host.style.order === '0' ? 'left' : 'right';
+  const onMove = (ev: MouseEvent) => {
+    const dx = ev.clientX - startX;
+    const newW = splitPos === 'right'
+      ? Math.max(200, Math.min(rect.width - 200, startW - dx))
+      : Math.max(200, Math.min(rect.width - 200, startW + dx));
+    host.style.width = newW + 'px';
+    host.style.transition = 'none';
+    window.dispatchEvent(new Event('resize'));
+  };
+  const onUp = () => {
+    document.removeEventListener('mousemove', onMove);
+    document.removeEventListener('mouseup', onUp);
+    document.body.style.cursor = '';
+    document.body.style.userSelect = '';
+    host.style.transition = '';
+  };
+  document.addEventListener('mousemove', onMove);
+  document.addEventListener('mouseup', onUp);
+  document.body.style.cursor = 'col-resize';
+  document.body.style.userSelect = 'none';
+}
 
 export default function SessionWorkspace({
   dashboard = {},
@@ -272,41 +305,14 @@ export default function SessionWorkspace({
                   style={{ ...style, zIndex: Z.PANEL_BUTTON + 6 }}
                 />
               ))}
-              {/* 文件编辑器分栏 host（由 FileEditor 通过 Portal 渲染） */}
+              {/* 文件编辑器分栏 host（由 FileEditor 通过 Portal 渲染，传输队列为独立浮动面板） */}
               <div
                 className="split-resizer-v hotzone-right"
                 style={{ display: 'none', order: 1 }}
                 id="editor-split-resizer"
                 onMouseDown={(e) => {
                   e.preventDefault();
-                  const host = document.getElementById('editor-split-host');
-                  if (!host) return;
-                  const container = document.getElementById('session-editor-container');
-                  if (!container) return;
-                  const rect = container.getBoundingClientRect();
-                  const startX = e.clientX;
-                  const startW = host.getBoundingClientRect().width;
-                  const splitPos = host.style.order === '0' ? 'left' : 'right';
-                  const onMove = (ev: MouseEvent) => {
-                    const dx = ev.clientX - startX;
-                    const newW = splitPos === 'right'
-                      ? Math.max(200, Math.min(rect.width - 200, startW - dx))
-                      : Math.max(200, Math.min(rect.width - 200, startW + dx));
-                    host.style.width = newW + 'px';
-                    host.style.transition = 'none';
-                    window.dispatchEvent(new Event('resize'));
-                  };
-                  const onUp = () => {
-                    document.removeEventListener('mousemove', onMove);
-                    document.removeEventListener('mouseup', onUp);
-                    document.body.style.cursor = '';
-                    document.body.style.userSelect = '';
-                    host.style.transition = '';
-                  };
-                  document.addEventListener('mousemove', onMove);
-                  document.addEventListener('mouseup', onUp);
-                  document.body.style.cursor = 'col-resize';
-                  document.body.style.userSelect = 'none';
+                  startHostResizeDrag(e, 'editor-split-host');
                 }}
               />
               <div id="editor-split-host" className="flex flex-col overflow-hidden order-2 w-0 [transition:width_0.2s_ease,height_0.2s_ease]" />
